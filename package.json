@@ -1,7 +1,7 @@
 {
   "name": "site-manager",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.2",
   "author": "User <user@example.com>",
   "description": "Site Manager Application",
   "homepage": "https://example.com",
