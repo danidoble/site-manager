@@ -27,6 +27,7 @@ jobs:
       
       - name: Build application
         run: npm run build
+        timeout-minutes: 30
       
       - name: Get version from tag
         id: get_version
