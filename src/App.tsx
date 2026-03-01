@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Plus, Trash2, Edit, ExternalLink, RefreshCw, Loader2, Server, Code, LayoutGrid, List } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, Trash2, Edit, ExternalLink, RefreshCw, Loader2, Code, LayoutGrid, List, Info } from 'lucide-react'
 import { Button } from './components/ui/Button'
 import { Input } from './components/ui/Input'
 import { Select } from './components/ui/Select'
@@ -13,6 +13,7 @@ interface Site {
   type: 'php' | 'proxy'
   phpVersion?: string
   proxyPort?: number
+  aliases?: string[]
 }
 
 interface Dependencies {
@@ -44,18 +45,28 @@ function App() {
     type: 'php',
     domain: '',
     phpVersion: '',
-    proxyPort: 3000
+    proxyPort: 3000,
+    aliases: []
   })
+  
+  const [aliasesInput, setAliasesInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [infoSite, setInfoSite] = useState<Site | null>(null)
 
-  useEffect(() => {
-    checkSystem()
+  const loadSites = useCallback(async () => {
+    const loadedSites = await window.ipcRenderer.invoke('get-sites')
+    setSites(loadedSites || [])
   }, [])
 
-  useEffect(() => {
-    localStorage.setItem('viewMode', viewMode)
-  }, [viewMode])
+  const loadPhpVersions = useCallback(async () => {
+    const versions = await window.ipcRenderer.invoke('get-php-versions')
+    setPhpVersions(versions)
+    if (versions.length > 0) {
+      setFormData(prev => ({ ...prev, phpVersion: versions[0] }))
+    }
+  }, [])
 
-  const checkSystem = async () => {
+  const checkSystem = useCallback(async () => {
     setLoading(true)
     try {
       const deps = await window.ipcRenderer.invoke('check-dependencies')
@@ -70,20 +81,15 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [loadSites, loadPhpVersions])
 
-  const loadSites = async () => {
-    const loadedSites = await window.ipcRenderer.invoke('get-sites')
-    setSites(loadedSites || [])
-  }
+  useEffect(() => {
+    checkSystem()
+  }, [checkSystem])
 
-  const loadPhpVersions = async () => {
-    const versions = await window.ipcRenderer.invoke('get-php-versions')
-    setPhpVersions(versions)
-    if (versions.length > 0) {
-      setFormData(prev => ({ ...prev, phpVersion: versions[0] }))
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('viewMode', viewMode)
+  }, [viewMode])
 
   const handleInstallDependencies = async () => {
     setLoading(true)
@@ -106,17 +112,22 @@ function App() {
       if (formData.type === 'php' && !formData.phpVersion) throw new Error('PHP Version is required')
       if (formData.type === 'proxy' && !formData.proxyPort) throw new Error('Port is required')
 
-      await window.ipcRenderer.invoke('create-site', formData)
+      await window.ipcRenderer.invoke('create-site', {
+        ...formData,
+        aliases: aliasesInput.split(',').map(s => s.trim()).filter(Boolean)
+      })
       await loadSites()
       setShowCreateModal(false)
       setFormData({
         type: 'php',
         domain: '',
         phpVersion: phpVersions[0] || '',
-        proxyPort: 3000
+        proxyPort: 3000,
+        aliases: []
       })
-    } catch (e: any) {
-      setFormError(e.message || 'An error occurred')
+      setAliasesInput('')
+    } catch (e: unknown) {
+      setFormError((e as Error).message || 'An error occurred')
     } finally {
       setSubmitting(false)
     }
@@ -130,7 +141,7 @@ function App() {
     setSubmitting(true)
 
     try {
-      const updateConfig: any = {}
+      const updateConfig: Partial<Site> = {}
       if (editingSite.type === 'php') {
         updateConfig.phpVersion = formData.phpVersion
       } else if (editingSite.type === 'proxy') {
@@ -141,8 +152,8 @@ function App() {
       await loadSites()
       setShowEditModal(false)
       setEditingSite(null)
-    } catch (e: any) {
-      setFormError(e.message || 'An error occurred')
+    } catch (e: unknown) {
+      setFormError((e as Error).message || 'An error occurred')
     } finally {
       setSubmitting(false)
     }
@@ -153,8 +164,10 @@ function App() {
     setFormData({
       type: site.type,
       phpVersion: site.phpVersion,
-      proxyPort: site.proxyPort
+      proxyPort: site.proxyPort,
+      aliases: site.aliases || []
     })
+    setAliasesInput((site.aliases || []).join(', '))
     setShowEditModal(true)
   }
 
@@ -187,6 +200,13 @@ function App() {
   const toggleViewMode = () => {
     setViewMode(prev => prev === 'grid' ? 'list' : 'grid')
   }
+
+  const filteredSites = sites.filter(site => {
+    if (!searchQuery) return true
+    const q = searchQuery.toLowerCase()
+    return site.domain.toLowerCase().includes(q) || 
+           (site.aliases || []).some(a => a.toLowerCase().includes(q))
+  })
 
   if (loading) {
     return (
@@ -229,10 +249,17 @@ function App() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <Server className="h-8 w-8 text-primary" />
+            <img src="/logo.png" alt="Site Manager Logo" className="h-8 w-8 object-contain" />
             <h1 className="text-3xl font-bold">Site Manager</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Input 
+              type="text" 
+              placeholder="Search sites..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-64 max-w-sm mr-2"
+            />
             <ThemeToggle />
             <Button 
               variant="outline" 
@@ -250,12 +277,12 @@ function App() {
         </div>
 
         {/* Sites Display */}
-        {sites.length === 0 ? (
+        {filteredSites.length === 0 ? (
           <Card className="text-center py-12">
             <CardContent>
               <Code className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No sites yet</h3>
-              <p className="text-muted-foreground mb-4">Create your first site to get started</p>
+              <h3 className="text-lg font-semibold mb-2">No sites found</h3>
+              <p className="text-muted-foreground mb-4">Create a new site or clear your search</p>
               <Button onClick={() => setShowCreateModal(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Site
@@ -265,7 +292,7 @@ function App() {
         ) : viewMode === 'grid' ? (
           /* Grid View */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sites.map(site => (
+            {filteredSites.map(site => (
               <Card key={site.domain} className="group">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -295,6 +322,14 @@ function App() {
                     >
                       <ExternalLink className="h-3 w-3 mr-1" />
                       Open
+                    </Button>
+                        <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setInfoSite(site)}
+                      title="Site Info"
+                    >
+                      <Info className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -339,7 +374,7 @@ function App() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {sites.map(site => (
+                {filteredSites.map(site => (
                   <tr key={site.domain} className="hover:bg-muted/30 transition-colors">
                     <td className="p-4">
                       <div className="font-medium">{site.domain}</div>
@@ -364,6 +399,14 @@ function App() {
                           title="Open site"
                         >
                           <ExternalLink className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setInfoSite(site)}
+                          title="Site Info"
+                        >
+                          <Info className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -423,7 +466,7 @@ function App() {
                 <label className="text-sm font-medium mb-2 block">Type</label>
                 <Select
                   value={formData.type}
-                  onChange={e => setFormData({...formData, type: e.target.value as any})}
+                  onChange={e => setFormData({...formData, type: e.target.value as Site['type']})}
                 >
                   <option value="php">PHP Site</option>
                   <option value="proxy">Node/Proxy App</option>
@@ -456,6 +499,16 @@ function App() {
               )}
 
               {formError && <p className="text-sm text-destructive">{formError}</p>}
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Aliases (comma separated)</label>
+                <Input
+                  type="text"
+                  placeholder="www.example.local, app.example.local"
+                  value={aliasesInput}
+                  onChange={e => setAliasesInput(e.target.value)}
+                />
+              </div>
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
@@ -513,6 +566,16 @@ function App() {
 
               {formError && <p className="text-sm text-destructive">{formError}</p>}
 
+              <div>
+                <label className="text-sm font-medium mb-2 block">Aliases (comma separated)</label>
+                <Input
+                  type="text"
+                  placeholder="www.example.local, app.example.local"
+                  value={aliasesInput}
+                  onChange={e => setAliasesInput(e.target.value)}
+                />
+              </div>
+
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowEditModal(false)}>
                   Cancel
@@ -531,6 +594,52 @@ function App() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Info Dialog */}
+        <Dialog open={!!infoSite} onOpenChange={() => setInfoSite(null)}>
+          <DialogContent onClose={() => setInfoSite(null)}>
+            <DialogHeader>
+              <DialogTitle>Site Information</DialogTitle>
+              <DialogDescription>
+                Paths and details for {infoSite?.domain}
+              </DialogDescription>
+            </DialogHeader>
+            {infoSite && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Document Root</label>
+                  <code className="text-xs bg-muted p-2 rounded block break-all">
+                    /var/www/{infoSite.domain}{infoSite.type === 'php' ? '/public' : ''}
+                  </code>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Nginx Config</label>
+                  <code className="text-xs bg-muted p-2 rounded block break-all">
+                    /etc/nginx/sites-available/{infoSite.domain}
+                  </code>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">SSL Certificate</label>
+                  <code className="text-xs bg-muted p-2 rounded block break-all">
+                    /etc/ssl/certs/{infoSite.domain}.crt
+                  </code>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">SSL Key</label>
+                  <code className="text-xs bg-muted p-2 rounded block break-all">
+                    /etc/ssl/private/{infoSite.domain}.key
+                  </code>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" onClick={() => setInfoSite(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </div>
     </div>
   )

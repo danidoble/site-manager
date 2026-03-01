@@ -5,6 +5,7 @@ export interface Site {
   type: 'php' | 'proxy'
   phpVersion?: string
   proxyPort?: number
+  aliases?: string[]
 }
 
 const store = new Store<{ sites: Site[] }>({

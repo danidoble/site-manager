@@ -1,10 +1,10 @@
 {
   "name": "site-manager",
   "private": true,
-  "version": "0.0.2",
-  "author": "User <user@example.com>",
+  "version": "0.0.3",
+  "author": "danidoble <ddanidoble@gmail.com>",
   "description": "Site Manager Application",
-  "homepage": "https://example.com",
+  "homepage": "https://danidoble.com",
   "main": "dist-electron/main/index.js",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,7 @@
     "preview": "vite preview"
   },
   "build": {
-    "appId": "com.sitemanager.app",
+    "appId": "com.danidoble.sitemanager",
     "productName": "Site Manager",
     "directories": {
       "output": "release/${version}"
@@ -27,7 +27,8 @@
         "AppImage",
         "deb"
       ],
-      "category": "Development"
+      "category": "Development",
+      "icon": "dist/icon.png"
     }
   },
   "dependencies": {

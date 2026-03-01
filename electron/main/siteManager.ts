@@ -4,7 +4,7 @@ import sudo from 'sudo-prompt'
 import { promisify } from 'util'
 import * as fs from 'fs'
 import * as path from 'path'
-import store from './store'
+import store, { Site } from './store'
 
 const execAsync = promisify(exec)
 
@@ -22,11 +22,11 @@ export class SiteManager {
     ipcMain.handle('install-dependencies', this.installDependencies.bind(this))
     ipcMain.handle('get-php-versions', this.getPhpVersions.bind(this))
     ipcMain.handle('get-sites', () => store.get('sites'))
-    ipcMain.handle('create-site', (event, config) => this.createSite(config))
-    ipcMain.handle('update-site', (event, domain, config) => this.updateSite(domain, config))
-    ipcMain.handle('delete-site', (event, domain) => this.deleteSite(domain))
+    ipcMain.handle('create-site', (_event, config) => this.createSite(config))
+    ipcMain.handle('update-site', (_event, domain, config) => this.updateSite(domain, config))
+    ipcMain.handle('delete-site', (_event, domain) => this.deleteSite(domain))
     ipcMain.handle('regenerate-ca', this.regenerateCA.bind(this))
-    ipcMain.handle('regenerate-site-cert', (event, domain) => this.regenerateSiteCert(domain))
+    ipcMain.handle('regenerate-site-cert', (_event, domain) => this.regenerateSiteCert(domain))
   }
 
   // ... (checkDependencies, getPhpVersions, installDependencies remain same)
@@ -42,22 +42,22 @@ export class SiteManager {
     try {
       await execAsync('which nginx')
       results.nginx = true
-    } catch (e) {}
+    } catch { /* ignore */ }
 
     try {
       await execAsync('which php')
       results.php = true
-    } catch (e) {}
+    } catch { /* ignore */ }
 
     try {
       await execAsync('which openssl')
       results.openssl = true
-    } catch (e) {}
+    } catch { /* ignore */ }
 
     try {
       await execAsync('which certutil')
       results.certutil = true
-    } catch (e) {}
+    } catch { /* ignore */ }
 
     return results
   }
@@ -74,7 +74,7 @@ export class SiteManager {
         .sort()
       
       return versions
-    } catch (e) {
+    } catch {
       return []
     }
   }
@@ -83,7 +83,7 @@ export class SiteManager {
     // This command assumes Debian/Ubuntu based system as per user request
     const command = 'apt-get update && apt-get install -y nginx php-fpm libnss3-tools openssl'
     return new Promise((resolve, reject) => {
-      sudo.exec(command, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(command, sudoOptions, (error, stdout) => {
         if (error) {
           reject(error)
         } else {
@@ -94,9 +94,6 @@ export class SiteManager {
   }
 
   private async removeCA() {
-    const caDir = path.join(app.getPath('userData'), 'ssl')
-    const caCert = path.join(caDir, 'rootCA.pem')
-    
     const commands = [
       // Remove from System
       `rm -f /usr/local/share/ca-certificates/SiteManagerCA.crt`,
@@ -114,7 +111,7 @@ export class SiteManager {
     const fullCommand = commands.join(' ; ') // Use ; to ensure all run even if some fail (e.g. cert not found)
     
     await new Promise((resolve) => {
-      sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(fullCommand, sudoOptions, (_error, stdout) => {
         // Ignore errors as cert might not exist
         resolve(stdout)
       })
@@ -134,7 +131,7 @@ export class SiteManager {
     await this.setupCA()
     
     // Regenerate all site certs
-    const sites = store.get('sites') as any[]
+    const sites = store.get('sites')
     for (const site of sites) {
       await this.regenerateSiteCert(site.domain)
     }
@@ -148,8 +145,19 @@ export class SiteManager {
     const csrPath = `/tmp/${domain}.csr`
     const extPath = `/tmp/${domain}.ext`
     
+    const sites = store.get('sites')
+    const site = sites.find(s => s.domain === domain)
+    const aliases = site?.aliases || []
+
     const { caKey, caCert } = await this.setupCA()
     
+    const altNames = [
+      `DNS.1 = ${domain}`,
+      `DNS.2 = *.${domain}`,
+      ...aliases.map((a: string, i: number) => `DNS.${i+3} = ${a}`),
+      `IP.1 = 127.0.0.1`
+    ].join('\n')
+
     const extContent = `
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
@@ -157,9 +165,7 @@ keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = ${domain}
-DNS.2 = *.${domain}
-IP.1 = 127.0.0.1
+${altNames}
 `
 
     const commands = [
@@ -174,7 +180,7 @@ IP.1 = 127.0.0.1
     const fullCommand = commands.join(' && ')
     
     await new Promise((resolve, reject) => {
-      sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(fullCommand, sudoOptions, (error, stdout) => {
         if (error) reject(error)
         else resolve(stdout)
       })
@@ -215,7 +221,7 @@ IP.1 = 127.0.0.1
 
       const fullCommand = commands.join(' && ')
       await new Promise((resolve, reject) => {
-        sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+        sudo.exec(fullCommand, sudoOptions, (error, stdout) => {
           if (error) reject(error)
           else resolve(stdout)
         })
@@ -226,8 +232,8 @@ IP.1 = 127.0.0.1
 
   // ... (createSite and deleteSite remain same)
 
-  private async createSite(config: any) {
-    const { domain, type, phpVersion, proxyPort } = config
+  private async createSite(config: Omit<Site, 'domain'> & { domain: string }) {
+    const { domain, type, phpVersion, proxyPort, aliases = [] } = config
     const rootDir = `/var/www/${domain}`
     const publicDir = `${rootDir}/public` // Laravel/Modern PHP convention
     const certPath = `/etc/ssl/certs/${domain}.crt`
@@ -238,6 +244,13 @@ IP.1 = 127.0.0.1
     // Ensure CA exists
     const { caKey, caCert } = await this.setupCA()
     
+    const altNames = [
+      `DNS.1 = ${domain}`,
+      `DNS.2 = *.${domain}`,
+      ...aliases.map((a: string, i: number) => `DNS.${i+3} = ${a}`),
+      `IP.1 = 127.0.0.1`
+    ].join('\n')
+
     // OpenSSL Config for SAN
     const extContent = `
 authorityKeyIdentifier=keyid,issuer
@@ -246,18 +259,17 @@ keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = ${domain}
-DNS.2 = *.${domain}
-IP.1 = 127.0.0.1
+${altNames}
 `
 
     // Commands to execute
-    const commands = [
-      `mkdir -p ${publicDir}`,
-      `chown -R $USER:$USER ${rootDir}`,
-      // Create a simple index file if empty
-      `echo "<?php phpinfo(); ?>" > ${publicDir}/index.php`,
-      
+    const commands = []
+    
+    if (type === 'php') {
+      commands.push(`if [ ! -d "${rootDir}" ]; then mkdir -p ${publicDir} && chown -R $USER:$USER ${rootDir} && echo "<?php phpinfo(); ?>" > ${publicDir}/index.php; fi`)
+    }
+
+    commands.push(
       // Write ext file
       `echo "${extContent}" > ${extPath}`,
 
@@ -270,7 +282,7 @@ IP.1 = 127.0.0.1
       
       // Cleanup temp files
       `rm -f ${csrPath} ${extPath}`,
-    ]
+    )
 
     // Nginx Config
     let nginxConfig = ''
@@ -296,12 +308,14 @@ IP.1 = 127.0.0.1
       `
     }
 
+    const serverNames = [domain, ...aliases].join(' ')
+
     if (type === 'php') {
       nginxConfig = `
 server {
     listen 80;
     listen 443 ssl;
-    server_name ${domain};
+    server_name ${serverNames};
     root ${publicDir};
     index index.php index.html;
 
@@ -322,7 +336,7 @@ server {
 server {
     listen 80;
     listen 443 ssl;
-    server_name ${domain};
+    server_name ${serverNames};
 
     ssl_certificate ${certPath};
     ssl_certificate_key ${keyPath};
@@ -356,7 +370,8 @@ server {
     
     // Add to hosts file if not exists
     // Use printf to correctly handle newlines
-    const hostsEntry = `127.0.0.1 ${domain}`
+    const allDomains = [domain, ...aliases].join(' ')
+    const hostsEntry = `127.0.0.1 ${allDomains}`
     const startMarker = `#start site-manager-${domain}`
     const endMarker = `#end site-manager-${domain}`
     const block = `\\n${startMarker}\\n${hostsEntry}\\n${endMarker}\\n`
@@ -369,7 +384,7 @@ server {
     const fullCommand = commands.join(' && ')
 
     await new Promise((resolve, reject) => {
-      sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(fullCommand, sudoOptions, (error, stdout) => {
         if (error) {
           console.error(error)
           reject(error)
@@ -379,15 +394,15 @@ server {
       })
     })
 
-    const sites = store.get('sites')
-    sites.push({ domain, type, phpVersion, proxyPort })
+    const sites = store.get('sites') || []
+    sites.push({ domain, type, phpVersion, proxyPort, aliases })
     store.set('sites', sites)
   }
 
-  private async updateSite(domain: string, config: any) {
+  private async updateSite(domain: string, config: Partial<Site>) {
     const { phpVersion, proxyPort } = config
-    const sites = store.get('sites') as any[]
-    const siteIndex = sites.findIndex((s: any) => s.domain === domain)
+    const sites = store.get('sites')
+    const siteIndex = sites.findIndex((s) => s.domain === domain)
     
     if (siteIndex === -1) {
       throw new Error(`Site ${domain} not found`)
@@ -426,12 +441,14 @@ server {
       `
     }
 
+    const serverNames = [domain, ...(site.aliases || [])].join(' ')
+
     if (site.type === 'php') {
       nginxConfig = `
 server {
     listen 80;
     listen 443 ssl;
-    server_name ${domain};
+    server_name ${serverNames};
     root ${publicDir};
     index index.php index.html;
 
@@ -452,7 +469,7 @@ server {
 server {
     listen 80;
     listen 443 ssl;
-    server_name ${domain};
+    server_name ${serverNames};
 
     ssl_certificate ${certPath};
     ssl_certificate_key ${keyPath};
@@ -482,7 +499,7 @@ server {
     const fullCommand = commands.join(' && ')
 
     await new Promise((resolve, reject) => {
-      sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(fullCommand, sudoOptions, (error, stdout) => {
         if (error) {
           reject(error)
         } else {
@@ -519,7 +536,7 @@ server {
     const fullCommand = commands.join(' && ')
     
     await new Promise((resolve, reject) => {
-      sudo.exec(fullCommand, sudoOptions, (error, stdout, stderr) => {
+      sudo.exec(fullCommand, sudoOptions, (error, stdout) => {
         if (error) {
           reject(error)
         } else {
@@ -529,7 +546,7 @@ server {
     })
 
     const sites = store.get('sites')
-    const newSites = sites.filter((s: any) => s.domain !== domain)
+    const newSites = sites.filter((s) => s.domain !== domain)
     store.set('sites', newSites)
   }
 }
