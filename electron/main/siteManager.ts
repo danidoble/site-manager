@@ -27,6 +27,14 @@ export class SiteManager {
     ipcMain.handle('delete-site', (_event, domain) => this.deleteSite(domain))
     ipcMain.handle('regenerate-ca', this.regenerateCA.bind(this))
     ipcMain.handle('regenerate-site-cert', (_event, domain) => this.regenerateSiteCert(domain))
+    ipcMain.handle('get-hosts', async () => {
+      try {
+        return await fs.promises.readFile('/etc/hosts', 'utf-8')
+      } catch {
+        return 'Error reading /etc/hosts'
+      }
+    })
+    ipcMain.handle('format-hosts', this.formatHosts.bind(this))
   }
 
   // ... (checkDependencies, getPhpVersions, installDependencies remain same)
@@ -82,6 +90,20 @@ export class SiteManager {
   private async installDependencies() {
     // This command assumes Debian/Ubuntu based system as per user request
     const command = 'apt-get update && apt-get install -y nginx php-fpm libnss3-tools openssl'
+    return new Promise((resolve, reject) => {
+      sudo.exec(command, sudoOptions, (error, stdout) => {
+        if (error) {
+          reject(error)
+        } else {
+          resolve(stdout)
+        }
+      })
+    })
+  }
+
+  private async formatHosts() {
+    // Uses sed to remove multiple blank lines
+    const command = "sed -i -e '/^$/N;/^\\n$/D' /etc/hosts"
     return new Promise((resolve, reject) => {
       sudo.exec(command, sudoOptions, (error, stdout) => {
         if (error) {
@@ -400,7 +422,7 @@ server {
   }
 
   private async updateSite(domain: string, config: Partial<Site>) {
-    const { phpVersion, proxyPort } = config
+    const { phpVersion, proxyPort, aliases, domain: newDomain } = config
     const sites = store.get('sites')
     const siteIndex = sites.findIndex((s) => s.domain === domain)
     
@@ -409,15 +431,45 @@ server {
     }
 
     const site = sites[siteIndex]
-    const publicDir = `/var/www/${domain}/public`
-    const certPath = `/etc/ssl/certs/${domain}.crt`
-    const keyPath = `/etc/ssl/private/${domain}.key`
+    
+    const domainChanged = !!(newDomain && newDomain !== domain)
+    const aliasesChanged = aliases !== undefined && JSON.stringify(site.aliases) !== JSON.stringify(aliases)
+    const finalDomain = domainChanged ? newDomain : domain
+
+    const publicDir = `/var/www/${finalDomain}/public`
+    const certPath = `/etc/ssl/certs/${finalDomain}.crt`
+    const keyPath = `/etc/ssl/private/${finalDomain}.key`
 
     // Update the site configuration
     if (site.type === 'php' && phpVersion) {
       site.phpVersion = phpVersion
     } else if (site.type === 'proxy' && proxyPort) {
       site.proxyPort = proxyPort
+    }
+    if (aliases !== undefined) {
+      site.aliases = aliases
+    }
+
+    const commands: string[] = []
+
+    if (domainChanged) {
+      if (site.type === 'php') {
+        commands.push(`if [ -d "/var/www/${domain}" ]; then mv /var/www/${domain} /var/www/${finalDomain}; fi`)
+      }
+      const useSitesAvailable = fs.existsSync('/etc/nginx/sites-available')
+      const configDir = useSitesAvailable ? '/etc/nginx/sites-available' : '/etc/nginx/conf.d'
+      const configExt = useSitesAvailable ? '' : '.conf'
+      
+      commands.push(`rm -f ${configDir}/${domain}${configExt}`)
+      if (useSitesAvailable) {
+        commands.push(`rm -f /etc/nginx/sites-enabled/${domain}`)
+      }
+      
+      commands.push(`rm -f /etc/ssl/certs/${domain}.crt`)
+      commands.push(`rm -f /etc/ssl/private/${domain}.key`)
+      commands.push(`sed -i '/#start site-manager-${domain}/,/#end site-manager-${domain}/d' /etc/hosts`)
+
+      site.domain = finalDomain
     }
 
     // Regenerate Nginx config
@@ -441,7 +493,7 @@ server {
       `
     }
 
-    const serverNames = [domain, ...(site.aliases || [])].join(' ')
+    const serverNames = [finalDomain, ...(site.aliases || [])].join(' ')
 
     if (site.type === 'php') {
       nginxConfig = `
@@ -489,12 +541,56 @@ server {
     const useSitesAvailable = fs.existsSync('/etc/nginx/sites-available')
     const configDir = useSitesAvailable ? '/etc/nginx/sites-available' : '/etc/nginx/conf.d'
     const configExtension = useSitesAvailable ? '' : '.conf'
-    const configPath = `${configDir}/${domain}${configExtension}`
+    const configPath = `${configDir}/${finalDomain}${configExtension}`
 
-    const commands = [
-      `echo '${nginxConfig}' > ${configPath}`,
-      `nginx -t && systemctl reload nginx`
-    ]
+    if (domainChanged || aliasesChanged) {
+      const { caKey, caCert } = await this.setupCA()
+      const csrPath = `/tmp/${finalDomain}.csr`
+      const extPath = `/tmp/${finalDomain}.ext`
+      
+      const altNames = [
+        `DNS.1 = ${finalDomain}`,
+        `DNS.2 = *.${finalDomain}`,
+        ...(site.aliases || []).map((a: string, i: number) => `DNS.${i+3} = ${a}`),
+        `IP.1 = 127.0.0.1`
+      ].join('\n')
+
+      const extContent = `
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+${altNames}
+`
+      commands.push(
+        `echo "${extContent}" > ${extPath}`,
+        `openssl genrsa -out ${keyPath} 2048`,
+        `openssl req -new -key ${keyPath} -out ${csrPath} -subj "/C=US/ST=State/L=City/O=Organization/CN=${finalDomain}"`,
+        `openssl x509 -req -in ${csrPath} -CA "${caCert}" -CAkey "${caKey}" -CAcreateserial -out ${certPath} -days 365 -sha256 -extfile ${extPath}`,
+        `rm -f ${csrPath} ${extPath}`
+      )
+    }
+
+    commands.push(
+      `echo '${nginxConfig}' > ${configPath}`
+    )
+    if (useSitesAvailable) {
+      commands.push(`ln -sf ${configPath} /etc/nginx/sites-enabled/`)
+    }
+    commands.push(`nginx -t && systemctl reload nginx`)
+
+    const allDomains = [finalDomain, ...(site.aliases || [])].join(' ')
+    const hostsEntry = `127.0.0.1 ${allDomains}`
+    const startMarker = `#start site-manager-${finalDomain}`
+    const endMarker = `#end site-manager-${finalDomain}`
+    const block = `\\n${startMarker}\\n${hostsEntry}\\n${endMarker}\\n`
+    
+    // Only remove if it's the exact same marker (we might have removed the old domain one already)
+    // Actually we removed the old domain one in the 'domainChanged' block earlier.
+    commands.push(`sed -i '/${startMarker}/,/${endMarker}/d' /etc/hosts`)
+    commands.push(`printf "${block}" >> /etc/hosts`)
 
     const fullCommand = commands.join(' && ')
 

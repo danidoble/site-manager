@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Edit, ExternalLink, RefreshCw, Loader2, Code, LayoutGrid, List, Info } from 'lucide-react'
+import { Plus, Trash2, Edit, ExternalLink, RefreshCw, Loader2, Code, LayoutGrid, List, Info, FileText } from 'lucide-react'
 import { Button } from './components/ui/Button'
 import { Input } from './components/ui/Input'
 import { Select } from './components/ui/Select'
@@ -37,6 +37,8 @@ function App() {
   
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showHostsModal, setShowHostsModal] = useState(false)
+  const [hostsContent, setHostsContent] = useState('')
   const [editingSite, setEditingSite] = useState<Site | null>(null)
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -102,6 +104,32 @@ function App() {
     }
   }
 
+  const handleOpenHosts = async () => {
+    setLoading(true)
+    try {
+      const content = await window.ipcRenderer.invoke('get-hosts')
+      setHostsContent(content)
+      setShowHostsModal(true)
+    } catch {
+      alert('Failed to load hosts file')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleFormatHosts = async () => {
+    setLoading(true)
+    try {
+      await window.ipcRenderer.invoke('format-hosts')
+      const content = await window.ipcRenderer.invoke('get-hosts')
+      setHostsContent(content)
+    } catch {
+      alert('Failed to format hosts file')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError('')
@@ -115,7 +143,7 @@ function App() {
       await window.ipcRenderer.invoke('create-site', {
         ...formData,
         aliases: aliasesInput.split(',').map(s => s.trim()).filter(Boolean)
-      })
+      } as Omit<Site, 'domain'> & { domain: string })
       await loadSites()
       setShowCreateModal(false)
       setFormData({
@@ -141,7 +169,10 @@ function App() {
     setSubmitting(true)
 
     try {
-      const updateConfig: Partial<Site> = {}
+      const updateConfig: Partial<Site> = {
+        domain: formData.domain,
+        aliases: aliasesInput.split(',').map(s => s.trim()).filter(Boolean)
+      }
       if (editingSite.type === 'php') {
         updateConfig.phpVersion = formData.phpVersion
       } else if (editingSite.type === 'proxy') {
@@ -162,6 +193,7 @@ function App() {
   const handleEdit = (site: Site) => {
     setEditingSite(site)
     setFormData({
+      domain: site.domain,
       type: site.type,
       phpVersion: site.phpVersion,
       proxyPort: site.proxyPort,
@@ -249,7 +281,7 @@ function App() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Site Manager Logo" className="h-8 w-8 object-contain" />
+            <img src="./logo.png" alt="Site Manager Logo" className="h-8 w-8 object-contain" />
             <h1 className="text-3xl font-bold">Site Manager</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -268,6 +300,9 @@ function App() {
               title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
             >
               {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+            </Button>
+            <Button variant="outline" onClick={handleOpenHosts} title="Preview Hosts File">
+              <FileText className="h-4 w-4" />
             </Button>
             <Button onClick={() => setShowCreateModal(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -539,6 +574,16 @@ function App() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleEditSubmit} className="space-y-4 mt-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Domain Name</label>
+                <Input
+                  type="text"
+                  placeholder="example.local"
+                  value={formData.domain || ''}
+                  onChange={e => setFormData({...formData, domain: e.target.value})}
+                />
+              </div>
+              
               {editingSite?.type === 'php' && (
                 <div>
                   <label className="text-sm font-medium mb-2 block">PHP Version</label>
@@ -606,12 +651,14 @@ function App() {
             </DialogHeader>
             {infoSite && (
               <div className="space-y-4 mt-4">
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Document Root</label>
-                  <code className="text-xs bg-muted p-2 rounded block break-all">
-                    /var/www/{infoSite.domain}{infoSite.type === 'php' ? '/public' : ''}
-                  </code>
-                </div>
+                {infoSite.type === 'php' && (
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Document Root</label>
+                    <code className="text-xs bg-muted p-2 rounded block break-all">
+                      /var/www/{infoSite.domain}/public
+                    </code>
+                  </div>
+                )}
                 <div>
                   <label className="text-sm font-medium mb-1 block">Nginx Config</label>
                   <code className="text-xs bg-muted p-2 rounded block break-all">
@@ -635,6 +682,32 @@ function App() {
             <DialogFooter>
               <Button type="button" onClick={() => setInfoSite(null)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Hosts Modal */}
+        <Dialog open={showHostsModal} onOpenChange={setShowHostsModal}>
+          <DialogContent onClose={() => setShowHostsModal(false)} className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Hosts File Preview</DialogTitle>
+              <DialogDescription>
+                Contents of /etc/hosts
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 border rounded bg-muted/50 p-4 max-h-[60vh] overflow-y-auto">
+              <pre className="text-xs whitespace-pre-wrap font-mono">
+                {hostsContent}
+              </pre>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowHostsModal(false)}>
+                Close
+              </Button>
+              <Button type="button" onClick={handleFormatHosts}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Format
               </Button>
             </DialogFooter>
           </DialogContent>

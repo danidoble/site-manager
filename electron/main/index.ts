@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, Menu } from 'electron'
 import { release } from 'node:os'
 import { join } from 'node:path'
 import { SiteManager } from './siteManager'
@@ -43,9 +43,11 @@ const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
 
 async function createWindow() {
+  Menu.setApplicationMenu(null)
+
   win = new BrowserWindow({
     title: 'Site Manager',
-    icon: join(process.env.PUBLIC || '', 'favicon.ico'),
+    icon: join(process.env.PUBLIC || '', 'logo.png'),
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -56,7 +58,10 @@ async function createWindow() {
     width: 1200,
     height: 800,
     backgroundColor: '#1e1e1e', // Dark mode background
+    autoHideMenuBar: true,
   })
+
+  win.setMenu(null)
 
   if (process.env.VITE_DEV_SERVER_URL) { // electron-vite-vue#298
     win.loadURL(url!)

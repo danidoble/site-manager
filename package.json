@@ -28,7 +28,7 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "dist/icon.png"
+      "icon": "build/icon.png"
     }
   },
   "dependencies": {
