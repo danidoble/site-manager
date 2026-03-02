@@ -1,4 +1,4 @@
-import * as React from 'react'
+import { forwardRef, useEffect, type HTMLAttributes, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from './Button'
@@ -6,10 +6,24 @@ import { Button } from './Button'
 interface DialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function Dialog({ open, onOpenChange, children }: DialogProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        onOpenChange(false)
+      }
+    }
+    if (open) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, onOpenChange])
+
   if (!open) return null
 
   return (
@@ -26,11 +40,11 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   )
 }
 
-interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
+interface DialogContentProps extends HTMLAttributes<HTMLDivElement> {
   onClose?: () => void
 }
 
-export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
+export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
   ({ className, children, onClose, ...props }, ref) => {
     return (
       <div
@@ -62,7 +76,7 @@ DialogContent.displayName = 'DialogContent'
 export const DialogHeader = ({
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
+}: HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)}
     {...props}
@@ -70,9 +84,9 @@ export const DialogHeader = ({
 )
 DialogHeader.displayName = 'DialogHeader'
 
-export const DialogTitle = React.forwardRef<
+export const DialogTitle = forwardRef<
   HTMLHeadingElement,
-  React.HTMLAttributes<HTMLHeadingElement>
+  HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
   <h2
     ref={ref}
@@ -82,9 +96,9 @@ export const DialogTitle = React.forwardRef<
 ))
 DialogTitle.displayName = 'DialogTitle'
 
-export const DialogDescription = React.forwardRef<
+export const DialogDescription = forwardRef<
   HTMLParagraphElement,
-  React.HTMLAttributes<HTMLParagraphElement>
+  HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
@@ -97,9 +111,9 @@ DialogDescription.displayName = 'DialogDescription'
 export const DialogFooter = ({
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
+}: HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+    className={cn('mt-6 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
     {...props}
   />
 )

@@ -2,8 +2,8 @@ import { ipcMain, app } from 'electron'
 import { exec } from 'child_process'
 import sudo from 'sudo-prompt'
 import { promisify } from 'util'
-import * as fs from 'fs'
-import * as path from 'path'
+import fs from 'node:fs'
+import path from 'node:path'
 import store, { Site } from './store'
 
 const execAsync = promisify(exec)

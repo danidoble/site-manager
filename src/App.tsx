@@ -344,6 +344,15 @@ function App() {
                           <span className="text-xs text-muted-foreground">Port {site.proxyPort}</span>
                         )}
                       </div>
+                      {site.aliases && site.aliases.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {site.aliases.map(alias => (
+                            <Badge key={alias} variant="secondary" className="text-[10px] px-1.5 py-0 opacity-70">
+                              {alias}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -413,6 +422,15 @@ function App() {
                   <tr key={site.domain} className="hover:bg-muted/30 transition-colors">
                     <td className="p-4">
                       <div className="font-medium">{site.domain}</div>
+                      {site.aliases && site.aliases.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {site.aliases.map(alias => (
+                            <Badge key={alias} variant="secondary" className="text-[10px] px-1.5 py-0 opacity-70">
+                              {alias}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="p-4">
                       <Badge variant={site.type === 'php' ? 'default' : 'secondary'}>
@@ -714,6 +732,13 @@ function App() {
         </Dialog>
 
       </div>
+      
+      {/* Footer */}
+      <footer className="py-6 mt-8 border-t">
+        <div className="container mx-auto text-center text-sm text-muted-foreground">
+          Created by <a href="https://github.com/danidoble/site-manager" target="_blank" rel="noopener noreferrer" className="font-semibold hover:text-primary transition-colors">danidoble</a>
+        </div>
+      </footer>
     </div>
   )
 }
