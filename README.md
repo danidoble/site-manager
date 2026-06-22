@@ -86,14 +86,15 @@ cargo install cargo-deb
 # build the package
 ./packaging/build-deb.sh
 # install system-wide
-sudo apt install ./target/debian/local-site-manager_2.0.0-1_amd64.deb
+sudo apt install ./target/debian/local-site-manager_2.0.0-2_amd64.deb
 ```
 
 The `.deb` ships all four binaries (`/usr/bin/`), the GNOME `.desktop` entry,
 hicolor icons (16→512 + SVG), AppStream metainfo, the Polkit policy
 (`/usr/share/polkit-1/actions/`), and the systemd service/timer skeletons.
-Runtime `Depends`: `libgtk-4-1, libadwaita-1-0, policykit-1, openssl,
-ca-certificates`. `Recommends`: `nginx, php-fpm, dnsmasq, libnss3-tools`.
+Runtime `Depends`: `libgtk-4-1, libadwaita-1-0, pkexec | policykit-1,
+polkitd | policykit-1, openssl, ca-certificates`. `Recommends`: `nginx,
+php-fpm, dnsmasq, libnss3-tools`.
 
 After install, launch from the app grid (Local Site Manager) or run
 `local-site-manager-gui`. Polkit will prompt for auth when the app performs a
@@ -110,6 +111,18 @@ privileged action (nginx reload, CA trust install); the
 Single portable file; runs anywhere x86-64. Note: an AppImage does **not** install
 the Polkit policy or systemd units — privileged operations from an AppImage will
 still trigger a pkexec prompt, and the background timer is not auto-enabled.
+
+### Release version bump
+
+Before committing and tagging a release, update all versioned files:
+
+```sh
+./packaging/bump-version.sh 2.0.1      # Debian package becomes 2.0.1-1
+./packaging/bump-version.sh 2.0.1 2    # Debian package becomes 2.0.1-2
+```
+
+Then commit, push, and tag with the matching version, for example `v2.0.1`.
+The GitHub Actions release workflow validates that the tag matches `Cargo.toml`.
 
 ### Uninstall
 
@@ -191,7 +204,7 @@ Default: `$XDG_CONFIG_HOME/local-site-manager` (or `~/.config/local-site-manager
 ```
 database.sqlite        # sites, aliases, certs, ca, proxies, health_checks
 config.toml            # config (dry_run, api_port, layout, provider, paths)
-logs/app.log           # daily-rotated tracing log
+logs/app.log           # tracing log
 backups/               # tar.gz archives
 certificates/          # issued leaf certs + keys
 ca/                    # rootCA.{crt,key}
