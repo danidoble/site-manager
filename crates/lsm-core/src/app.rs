@@ -327,18 +327,15 @@ impl App {
         Ok(self.db.get_ca()?.or_else(|| ca::load_ca(&self.paths.ca, "internal").ok().flatten()))
     }
 
-    /// Install the CA into the system trust store (privileged). `browser` None = system only.
+    /// Install the CA into the system trust store (privileged) or user browser NSS DBs.
+    ///
+    /// Browser trust is intentionally not privileged: Firefox/Chromium profiles
+    /// live in the user's home, and running certutil through pkexec would modify
+    /// root's profiles instead.
     pub fn install_ca(&self, browser: Option<&str>) -> Result<PrivilegedResult> {
         let ca = self.ca_info()?.ok_or_else(|| Error::NotFound("no CA initialized".into()))?;
         if let Some(b) = browser {
-            privileged::run(
-                &PrivilegedCommand::InstallCaBrowser {
-                    browser: b.to_string(),
-                    cert_path: ca.cert_path.clone(),
-                },
-                self.config.dry_run,
-                self.helper(),
-            )
+            self.install_ca_browser(b, &ca.cert_path)
         } else {
             privileged::run(
                 &PrivilegedCommand::InstallCaSystem {
@@ -348,6 +345,43 @@ impl App {
                 self.helper(),
             )
         }
+    }
+
+    fn install_ca_browser(&self, browser: &str, cert_path: &str) -> Result<PrivilegedResult> {
+        let browser = browser.to_ascii_lowercase();
+        let dbs = browser_nss_dbs(&browser)?;
+        if dbs.is_empty() {
+            return Err(Error::NotFound(format!(
+                "no NSS browser profiles found for `{browser}`"
+            )));
+        }
+
+        let mut installed = Vec::new();
+        let mut failed = Vec::new();
+        for db in dbs {
+            match install_ca_into_nss_db(&db, cert_path) {
+                Ok(()) => installed.push(db.display().to_string()),
+                Err(e) => failed.push(format!("{}: {e}", db.display())),
+            }
+        }
+
+        if installed.is_empty() {
+            return Err(Error::Other(format!(
+                "browser trust install failed: {}",
+                failed.join("; ")
+            )));
+        }
+
+        let suffix = if failed.is_empty() {
+            String::new()
+        } else {
+            format!("; skipped/failed: {}", failed.join("; "))
+        };
+        Ok(PrivilegedResult::ok(format!(
+            "CA installed into {} browser trust store(s){}",
+            installed.len(),
+            suffix
+        )))
     }
 
     // ---- SSL -------------------------------------------------------------
@@ -589,6 +623,71 @@ fn which(bin: &str) -> Option<PathBuf> {
 fn default_project_path(www_root: &str, domain: &str) -> String {
     let domain = domain.trim().trim_start_matches("*.");
     format!("{}/{domain}/html", www_root.trim_end_matches('/'))
+}
+
+fn browser_nss_dbs(browser: &str) -> Result<Vec<PathBuf>> {
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .map_err(|_| Error::Other("HOME is not set; cannot locate browser profiles".into()))?;
+    let mut out = Vec::new();
+
+    let wants_all = browser == "all" || browser == "browsers";
+    if wants_all || matches!(browser, "chrome" | "chromium" | "brave") {
+        out.push(home.join(".pki").join("nssdb"));
+    }
+
+    if wants_all || browser == "firefox" {
+        let firefox = home.join(".mozilla").join("firefox");
+        if let Ok(entries) = std::fs::read_dir(&firefox) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && (path.join("cert9.db").exists() || path.join("key4.db").exists()) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+
+    if out.is_empty() && !matches!(browser, "all" | "browsers" | "chrome" | "chromium" | "brave" | "firefox") {
+        return Err(Error::Validation(format!(
+            "unknown browser `{browser}`; use firefox, chromium, chrome, brave, or all"
+        )));
+    }
+
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+fn install_ca_into_nss_db(db: &Path, cert_path: &str) -> Result<()> {
+    std::fs::create_dir_all(db)?;
+    let db_arg = format!("sql:{}", db.display());
+    if !db.join("cert9.db").exists() {
+        let status = Command::new("certutil")
+            .args(["-N", "--empty-password", "-d", &db_arg])
+            .status()
+            .map_err(|e| Error::Other(format!("spawn certutil: {e} (install libnss3-tools)")))?;
+        if !status.success() {
+            return Err(Error::Other(format!("certutil -N failed for {}", db.display())));
+        }
+    }
+
+    let _ = Command::new("certutil")
+        .args(["-d", &db_arg, "-D", "-n", "LSM-Local-CA"])
+        .status();
+    let output = Command::new("certutil")
+        .args(["-d", &db_arg, "-A", "-n", "LSM-Local-CA", "-t", "C,,", "-i", cert_path])
+        .output()
+        .map_err(|e| Error::Other(format!("spawn certutil: {e} (install libnss3-tools)")))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(Error::Other(format!(
+            "certutil failed for {}: {}",
+            db.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
 }
 
 #[cfg(test)]

@@ -71,8 +71,9 @@ site-manager ssl delete <cert-id>
 ```sh
 site-manager ca init
 site-manager ca show
-site-manager ca install
+site-manager ca install                  # system trust store, uses pkexec
 site-manager ca install --browser firefox
+site-manager ca install --browser all    # Firefox profiles + Chromium NSS DB
 ```
 
 ## Nginx

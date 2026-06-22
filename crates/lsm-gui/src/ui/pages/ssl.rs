@@ -24,7 +24,8 @@ impl SslPage {
         let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
         refresh.set_tooltip_text(Some("Refresh"));
         let init_ca = gtk::Button::with_label("Initialize CA");
-        let install_ca = gtk::Button::with_label("Install CA…");
+        let install_ca = gtk::Button::with_label("Install System CA");
+        let install_browsers = gtk::Button::with_label("Install Browser CA");
 
         {
             let ctx = ctx.clone();
@@ -53,6 +54,20 @@ impl SslPage {
                 let ctx = ctx.clone();
                 std::thread::spawn(move || {
                     let r = lsm_core::App::new().and_then(|a| a.install_ca(None));
+                    let _ = ctx.sender.send(match r {
+                        Ok(p) if p.success => Event::Toast(p.message),
+                        Ok(p) => Event::Error(p.message),
+                        Err(e) => Event::Error(e.to_string()),
+                    });
+                });
+            });
+        }
+        {
+            let ctx = ctx.clone();
+            install_browsers.connect_clicked(move |_| {
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    let r = lsm_core::App::new().and_then(|a| a.install_ca(Some("all")));
                     let _ = ctx.sender.send(match r {
                         Ok(p) if p.success => Event::Toast(p.message),
                         Ok(p) => Event::Error(p.message),
@@ -95,7 +110,7 @@ impl SslPage {
 
         Self {
             body: root.upcast(),
-            actions: vec![install_ca.upcast(), init_ca.upcast(), refresh.upcast()],
+            actions: vec![install_browsers.upcast(), install_ca.upcast(), init_ca.upcast(), refresh.upcast()],
             list,
             ca_status,
             shared: Rc::new(RefCell::new(Vec::new())),

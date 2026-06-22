@@ -86,7 +86,7 @@ cargo install cargo-deb
 # build the package
 ./packaging/build-deb.sh
 # install system-wide
-sudo apt install ./target/debian/local-site-manager_2.0.1-1_amd64.deb
+sudo apt install ./target/debian/local-site-manager_2.0.2-1_amd64.deb
 ```
 
 The `.deb` ships all four binaries (`/usr/bin/`), the GNOME `.desktop` entry,
@@ -105,7 +105,7 @@ privileged action (nginx reload, CA trust install); the
 
 ```sh
 ./packaging/build-appimage.sh      # downloads linuxdeploy + appimagetool on first run
-./packaging/dist/local-site-manager-2.0.1-x86_64.AppImage
+./packaging/dist/local-site-manager-2.0.2-x86_64.AppImage
 ```
 
 Single portable file; runs anywhere x86-64. Note: an AppImage does **not** install
@@ -135,6 +135,8 @@ rm packaging/dist/*.AppImage            # AppImage: just delete the file
 
 ```sh
 site-manager ca init                       # generate the internal CA
+site-manager ca install                    # install CA into system trust
+site-manager ca install --browser all      # install CA into browser NSS stores
 site-manager site create \
     --name app --domain app.test --type php --php 8.3 \
     --wildcard --aliases www.app.test --configure

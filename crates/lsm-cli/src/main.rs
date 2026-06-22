@@ -164,6 +164,7 @@ enum CaAction {
     Show,
     /// Install the CA into a trust store (system if no --browser).
     Install {
+        /// Browser NSS store: firefox, chromium, chrome, brave, or all.
         #[arg(long)]
         browser: Option<String>,
     },
