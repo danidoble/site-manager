@@ -3,46 +3,90 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v2.0.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write
-    
+  build-release:
+    name: Build distributables
+    runs-on: ubuntu-24.04
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Build application
-        run: npm run build
-        timeout-minutes: 30
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            fuse \
+            libadwaita-1-dev \
+            libclang-dev \
+            libfuse2t64 \
+            libgtk-4-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Validate tag matches Cargo version
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          cargo_version="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          tag_version="${RELEASE_TAG#v}"
+          if [ "$tag_version" != "$cargo_version" ]; then
+            echo "Tag version ($tag_version) must match Cargo.toml version ($cargo_version)."
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Build Debian package
+        run: ./packaging/build-deb.sh
+
+      - name: Build AppImage
+        run: ./packaging/build-appimage.sh
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp target/debian/*.deb release-artifacts/
+          cp packaging/dist/*.AppImage release-artifacts/
+          (cd release-artifacts && sha256sum * > SHA256SUMS)
+          ls -lh release-artifacts
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/${{ steps.get_version.outputs.VERSION }}/Site Manager-${{ steps.get_version.outputs.VERSION }}.AppImage
-            release/${{ steps.get_version.outputs.VERSION }}/site-manager_${{ steps.get_version.outputs.VERSION }}_amd64.deb
-          draft: false
-          prerelease: false
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Local Site Manager ${{ github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            release-artifacts/*.deb
+            release-artifacts/*.AppImage
+            release-artifacts/SHA256SUMS

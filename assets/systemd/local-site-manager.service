@@ -1,0 +1,15 @@
+[Unit]
+Description=Local Site Manager background worker
+Documentation=https://example.invalid/local-site-manager
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs validation, SSL renewal, nginx config test, and health checks.
+ExecStart=/usr/bin/site-manager background
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=timers.target

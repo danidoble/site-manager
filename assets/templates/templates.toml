@@ -1,0 +1,81 @@
+# Project templates registry (specs §Templates).
+# Each entry maps a framework to its runtime, nginx site type, and a hint for the
+# project installer. `nginx` selects the rendering mode in site.conf.j2.
+
+[[template]]
+name = "laravel"
+runtime = "php"
+site_type = "php"
+install = "composer create-project laravel/laravel"
+
+[[template]]
+name = "symfony"
+runtime = "php"
+site_type = "php"
+install = "composer create-project symfony/skeleton"
+
+[[template]]
+name = "wordpress"
+runtime = "php"
+site_type = "php"
+install = "download from https://wordpress.org/latest.zip"
+
+[[template]]
+name = "statamic"
+runtime = "php"
+site_type = "php"
+install = "composer create-project statamic/statamic"
+
+[[template]]
+name = "react"
+runtime = "node"
+site_type = "static"
+install = "npm create vite@latest -- --template react"
+
+[[template]]
+name = "vue"
+runtime = "node"
+site_type = "static"
+install = "npm create vite@latest -- --template vue"
+
+[[template]]
+name = "nextjs"
+runtime = "node"
+site_type = "proxy"
+install = "npx create-next-app@latest"
+
+[[template]]
+name = "nuxt"
+runtime = "node"
+site_type = "proxy"
+install = "npx nuxi@latest init"
+
+[[template]]
+name = "django"
+runtime = "python"
+site_type = "proxy"
+install = "django-admin startproject"
+
+[[template]]
+name = "flask"
+runtime = "python"
+site_type = "proxy"
+install = "pip install flask"
+
+[[template]]
+name = "fastapi"
+runtime = "python"
+site_type = "proxy"
+install = "pip install fastapi uvicorn"
+
+[[template]]
+name = "go-fiber"
+runtime = "go"
+site_type = "proxy"
+install = "go get github.com/gofiber/fiber/v2"
+
+[[template]]
+name = "go-gin"
+runtime = "go"
+site_type = "proxy"
+install = "go get github.com/gin-gonic/gin"

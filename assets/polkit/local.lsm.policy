@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<!--
+  Policy for Local Site Manager privileged helper.
+  Grants the active user the right to run `local-site-manager-privileged`
+  (nginx reload, /etc/nginx writes, CA trust install) after authentication.
+-->
+<policyconfig>
+
+  <vendor>Local Site Manager</vendor>
+  <vendor_url>https://example.invalid/local-site-manager</vendor_url>
+
+  <action id="local.lsm.privileged">
+    <description>Run the Local Site Manager privileged helper</description>
+    <message>Authentication is required to modify nginx configuration, reload services, and install the local CA into system trust stores.</message>
+    <icon_name>preferences-system</icon_name>
+
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/local-site-manager-privileged</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>

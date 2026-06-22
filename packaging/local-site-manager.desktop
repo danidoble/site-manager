@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Local Site Manager
+GenericName=Local Development Site Manager
+Comment=Manage local dev sites: Nginx, SSL, PHP-FPM, reverse proxy
+Comment[es]=Gestiona sitios locales: Nginx, SSL, PHP-FPM, proxy inverso
+Exec=local-site-manager-gui
+Icon=local-site-manager
+Terminal=false
+Categories=Development;Network;System;GTK;
+Keywords=nginx;ssl;php;development;local;web;
+StartupNotify=true

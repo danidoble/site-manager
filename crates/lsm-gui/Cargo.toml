@@ -1,0 +1,55 @@
+[package]
+name = "lsm-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Native GNOME desktop app to manage local dev sites (Nginx, SSL, PHP, proxy)"
+
+[[bin]]
+name = "local-site-manager-gui"
+path = "src/main.rs"
+
+[dependencies]
+lsm-core = { workspace = true }
+gtk4 = { workspace = true }
+libadwaita = { workspace = true }
+glib = { workspace = true }
+gio = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+
+[package.metadata.deb]
+name = "local-site-manager"
+maintainer = "Local Site Manager <local-site-manager@example.invalid>"
+copyright = "2026, Local Site Manager contributors"
+section = "net"
+priority = "optional"
+depends = "libgtk-4-1, libadwaita-1-0 (>= 1.5), policykit-1, openssl, ca-certificates, libc6"
+recommends = "nginx, php-fpm, dnsmasq, libnss3-tools"
+enhances = "nginx"
+maintainer-scripts = "../../packaging/deb"
+assets = [
+    ["target/release/local-site-manager-gui", "usr/bin/", "755"],
+    ["target/release/site-manager", "usr/bin/", "755"],
+    ["target/release/local-site-manager-api", "usr/bin/", "755"],
+    ["target/release/local-site-manager-privileged", "usr/bin/", "755"],
+    ["../../packaging/local-site-manager.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/local-site-manager.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["../../packaging/icons/local-site-manager.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../packaging/icons/16/local-site-manager.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
+    ["../../packaging/icons/32/local-site-manager.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
+    ["../../packaging/icons/48/local-site-manager.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["../../packaging/icons/64/local-site-manager.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["../../packaging/icons/128/local-site-manager.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["../../packaging/icons/256/local-site-manager.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["../../packaging/icons/512/local-site-manager.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    ["../../assets/polkit/local.lsm.policy", "usr/share/polkit-1/actions/", "644"],
+    ["../../assets/systemd/local-site-manager.service", "usr/lib/systemd/system/", "644"],
+    ["../../assets/systemd/local-site-manager.timer", "usr/lib/systemd/system/", "644"],
+]

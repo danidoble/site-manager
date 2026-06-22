@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>local.lsm.SiteManager</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Local Site Manager</name>
+  <summary>Manage local development sites with Nginx, SSL, and PHP</summary>
+  <description>
+    <p>
+      Native GNOME desktop application for Ubuntu/Debian to manage local development
+      sites. Generates Nginx configuration automatically, manages SSL certificates
+      signed by a local 30-year CA, supports multiple PHP-FPM versions, reverse
+      proxies to Node/Bun/Deno/Python/Go services, wildcard domains, and exposes a
+      local REST API plus a CLI.
+    </p>
+  </description>
+  <launchable type="desktop-id">local-site-manager.desktop</launchable>
+  <provides>
+    <binary>local-site-manager-gui</binary>
+    <binary>local-site-manager</binary>
+    <binary>local-site-manager-api</binary>
+    <binary>local-site-manager-privileged</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>Network</category>
+    <category>System</category>
+  </categories>
+  <keywords>
+    <keyword>nginx</keyword>
+    <keyword>ssl</keyword>
+    <keyword>php</keyword>
+    <keyword>development</keyword>
+  </keywords>
+  <url type="bugtracker">https://example.invalid/local-site-manager/issues</url>
+  <url type="homepage">https://example.invalid/local-site-manager</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.0.0" date="2026-06-21">
+      <description><p>Initial release: core engine, CLI, REST API, GTK4 GUI, privileged helper.</p></description>
+    </release>
+  </releases>
+</component>

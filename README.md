@@ -1,255 +1,234 @@
-# Site Manager
+# Local Site Manager v2.0
 
-<div align="center">
+Native GNOME desktop app for Ubuntu/Debian (Rust + GTK4 + libadwaita) that manages
+local development sites: automatic Nginx config, a local CA + SSL, multiple PHP-FPM
+versions, reverse-proxy support, wildcard domains, a REST API, and a CLI.
 
-![Site Manager](https://img.shields.io/badge/Electron-App-blue?style=for-the-badge&logo=electron)
-![React](https://img.shields.io/badge/React-19.2.0-61DAFB?style=for-the-badge&logo=react)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-38B2AC?style=for-the-badge&logo=tailwind-css)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+Built to the spec in [`specs.md`](specs.md).
 
-**A modern, minimalist Electron application for managing local development sites with Nginx, SSL, and PHP-FPM**
+## Status
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Development](#development) • [License](#license)
+This repository implements the **foundation + core** of the spec, plus the GUI shell:
 
-</div>
+| Area | State |
+|------|-------|
+| Workspace, config, SQLite storage, domain model | ✅ implemented, tested |
+| Nginx provider (layout detect, render, write/reload) | ✅ implemented, tested |
+| Internal CA (openssl, 30-year root) + leaf signing | ✅ implemented, tested |
+| mkcert provider | ✅ implemented (needs `mkcert` on PATH) |
+| SSL issue/renew, domain + SAN handling | ✅ implemented, tested |
+| DNS wizard (dnsmasq / hosts / wildcards) | ✅ implemented |
+| Diagnostics (nginx, dns, ssl, php, ports, trust) | ✅ implemented |
+| Health probing (proxy upstreams) | ✅ implemented |
+| Backups (tar.gz create/list/restore) | ✅ implemented, tested |
+| Project templates registry (13 frameworks) | ✅ implemented, tested |
+| Validation (domains, names, paths, proxy targets) | ✅ implemented, tested |
+| Privileged root worker + Polkit policy | ✅ implemented, dry-run tested |
+| CLI (`local-site-manager`) | ✅ implemented, smoke-tested |
+| REST API (`:5847`, axum) | ✅ implemented, smoke-tested |
+| GTK4 / libadwaita GUI | ✅ compiles, dashboard+sites+SSL+diag+logs+backups wired |
+| systemd service/timer auto-install | ⏳ skeleton units shipped, wiring deferred |
+| `.deb` + AppImage packaging | ✅ built & verified (`packaging/`) |
+| Flatpak packaging | ⏳ deferred (see Roadmap) |
 
----
-
-## 📋 Overview
-
-Site Manager is a desktop application that simplifies the creation and management of local development sites. It automatically configures Nginx, generates SSL certificates, manages PHP versions, and handles proxy configurations for Node.js applications.
-
-### ✨ Key Features
-
-- 🚀 **Quick Site Creation** - Create PHP or proxy sites in seconds
-- 🔒 **Automatic SSL** - Self-signed certificates with trusted Root CA
-- 🎨 **Modern UI** - Beautiful interface with dark/light theme support
-- 🔄 **View Toggle** - Switch between grid and list layouts
-- ⚙️ **PHP Version Management** - Easily switch between installed PHP versions
-- 🔧 **Site Configuration Editing** - Update PHP versions or proxy ports on the fly
-- 📦 **Easy Distribution** - AppImage and .deb packages available
-
-## 🎯 Features
-
-### Site Management
-- **PHP Sites**: Automatic Nginx + PHP-FPM configuration
-- **Proxy Sites**: Reverse proxy for Node.js/Express applications
-- **SSL Certificates**: Trusted self-signed certificates for HTTPS
-- **Edit Configuration**: Change PHP version or proxy port after creation
-- **Certificate Regeneration**: Refresh SSL certificates per site or globally
-
-### User Interface
-- **Dark/Light Theme**: Toggle between themes with preference persistence
-- **Grid/List View**: Choose your preferred layout for viewing sites
-- **Responsive Design**: Works beautifully at any window size
-- **Modern Components**: shadcn/ui-inspired design with TailwindCSS
-- **Icon Integration**: Lucide React icons throughout
-
-### Developer Experience
-- **Automated Releases**: GitHub Actions workflow for building releases
-- **TypeScript**: Full type safety across the codebase
-- **Hot Reload**: Fast development with Vite
-- **Cross-platform**: Built with Electron for Linux (Windows/macOS support possible)
-
-## 📦 Installation
-
-### From Releases
-
-Download the latest release from the [Releases page](https://github.com/danidoble/site-manager/releases):
-
-**AppImage (Portable):**
-```bash
-chmod +x Site\ Manager-*.AppImage
-./Site\ Manager-*.AppImage --no-sandbox
-```
-
-**Debian/Ubuntu (.deb):**
-```bash
-sudo dpkg -i site-manager_*_amd64.deb
-```
-
-### Build from Source
-
-**Prerequisites:**
-- Node.js 20 or higher
-- npm or bun
-
-**Steps:**
-```bash
-# Clone the repository
-git clone https://github.com/danidoble/site-manager.git
-cd site-manager
-
-# Install dependencies
-npm install
-
-# Run in development mode
-npm run dev
-
-# Build for production
-npm run build
-```
-
-## 🚀 Usage
-
-### First Run
-
-On first launch, Site Manager will check for required dependencies:
-- Nginx
-- PHP-FPM
-- OpenSSL
-- libnss3-tools (certutil)
-
-If any are missing, click "Install Dependencies" to install them automatically (requires sudo).
-
-### Creating a Site
-
-1. Click **"New Site"** button
-2. Enter a domain name (e.g., `myproject.local`)
-3. Choose site type:
-   - **PHP Site**: For Laravel, WordPress, or any PHP application
-   - **Proxy**: For Node.js, Express, or other applications
-4. Configure:
-   - **PHP**: Select PHP version
-   - **Proxy**: Enter port number
-5. Click **"Create Site"**
-
-The site will be automatically configured with:
-- Nginx virtual host
-- SSL certificate (trusted)
-- `/etc/hosts` entry
-- Document root at `/var/www/{domain}/public`
-
-### Editing a Site
-
-1. Click the **Edit** icon on any site card
-2. Modify the PHP version or proxy port
-3. Click **"Update Site"**
-
-The Nginx configuration will be regenerated and reloaded automatically.
-
-### Switching Views
-
-- Click the **Grid/List** toggle button in the header
-- **Grid View**: Visual cards with hover effects
-- **List View**: Compact table layout
-
-Your preference is saved automatically.
-
-### Theme Toggle
-
-Click the **Sun/Moon** icon to switch between dark and light themes.
-
-## 🛠️ Development
-
-### Project Structure
+## Workspace layout
 
 ```
 site-manager/
-├── electron/
-│   ├── main/
-│   │   ├── index.ts          # Electron main process
-│   │   ├── siteManager.ts    # Site management logic
-│   │   └── store.ts          # Persistent storage
-│   └── preload/
-│       └── index.ts          # Preload script
-├── src/
-│   ├── components/
-│   │   ├── ui/               # Reusable UI components
-│   │   └── ThemeToggle.tsx   # Theme switcher
-│   ├── contexts/
-│   │   └── ThemeContext.tsx  # Theme provider
-│   ├── lib/
-│   │   └── utils.ts          # Utility functions
-│   ├── App.tsx               # Main application
-│   ├── main.tsx              # React entry point
-│   └── index.css             # Global styles
-├── .github/
-│   └── workflows/
-│       └── release.yml       # CI/CD workflow
-└── package.json
+  Cargo.toml                    # workspace + shared dependency versions
+  crates/
+    lsm-core/                   # the engine: config, db, domain, nginx, ca, ssl,
+                                #   dns, health, diagnostics, backup, templates,
+                                #   providers, privileged client, App facade
+    lsm-cli/                    # bin: site-manager
+    lsm-api/                    # bin: local-site-manager-api  (REST :5847)
+    lsm-gui/                    # bin: local-site-manager-gui  (GTK4 + libadwaita)
+    lsm-privileged/             # bin: root worker spawned via pkexec
+  assets/
+    sql/schema.sql              # SQLite DDL (applied idempotently)
+    nginx/site.conf.j2          # minijinja server-block template
+    polkit/local.lsm.policy     # Polkit policy for the privileged helper
+    systemd/                    # service + timer units (skeleton)
+    templates/templates.toml    # per-framework template registry
 ```
 
-### Tech Stack
+## Prerequisites
 
-- **Frontend**: React 19, TailwindCSS, Lucide React
-- **Backend**: Electron, Node.js
-- **Build**: Vite, TypeScript, electron-builder
-- **State**: React hooks, localStorage
-- **Styling**: TailwindCSS with custom theme
-
-### Available Scripts
-
-```bash
-npm run dev      # Start development server
-npm run build    # Build production bundle
-npm run lint     # Run ESLint
-npm run preview  # Preview production build
+```sh
+sudo apt install build-essential pkg-config \
+  libgtk-4-dev libadwaita-1-dev libsqlite3-dev libssl-dev libclang-dev
+# Rust (stable)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Creating a Release
+`bindgen` (used by gtk-rs) needs libclang: `export LIBCLANG_PATH=/usr/lib/llvm-18/lib`.
 
-1. Commit all changes
-2. Create and push a version tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-3. GitHub Actions will automatically:
-   - Build the application
-   - Create AppImage and .deb packages
-   - Create a GitHub release
-   - Upload artifacts
+## Build & test
 
-## 🔧 Configuration
+```sh
+cargo build --workspace
+cargo test  --workspace      # 25 unit tests
+```
 
-### Site Storage
+Binaries land in `target/debug/`:
+`site-manager`, `local-site-manager-api`, `local-site-manager-gui`,
+`local-site-manager-privileged`.
 
-Sites are stored in Electron's user data directory using `electron-store`:
-- **Linux**: `~/.config/site-manager/config.json`
+## Install (packages)
 
-### SSL Certificates
+Two installable artifacts are produced by the scripts in [`packaging/`](packaging/):
 
-- **Root CA**: `{userData}/ssl/rootCA.pem`
-- **Site Certs**: `/etc/ssl/certs/{domain}.crt`
-- **Private Keys**: `/etc/ssl/private/{domain}.key`
+### `.deb` (Ubuntu/Debian)
 
-### Nginx Configuration
+```sh
+# one-time: install the packager
+cargo install cargo-deb
+# build the package
+./packaging/build-deb.sh
+# install system-wide
+sudo apt install ./target/debian/local-site-manager_2.0.0-1_amd64.deb
+```
 
-- **Sites Available**: `/etc/nginx/sites-available/{domain}`
-- **Sites Enabled**: `/etc/nginx/sites-enabled/{domain}`
-- **Alternative**: `/etc/nginx/conf.d/{domain}.conf`
+The `.deb` ships all four binaries (`/usr/bin/`), the GNOME `.desktop` entry,
+hicolor icons (16→512 + SVG), AppStream metainfo, the Polkit policy
+(`/usr/share/polkit-1/actions/`), and the systemd service/timer skeletons.
+Runtime `Depends`: `libgtk-4-1, libadwaita-1-0, policykit-1, openssl,
+ca-certificates`. `Recommends`: `nginx, php-fpm, dnsmasq, libnss3-tools`.
 
-## 🤝 Contributing
+After install, launch from the app grid (Local Site Manager) or run
+`local-site-manager-gui`. Polkit will prompt for auth when the app performs a
+privileged action (nginx reload, CA trust install); the
+`local.lsm.policy` action allows it.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### AppImage (portable, no install)
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+```sh
+./packaging/build-appimage.sh      # downloads linuxdeploy + appimagetool on first run
+./packaging/dist/local-site-manager-2.0.0-x86_64.AppImage
+```
 
-## 📝 License
+Single portable file; runs anywhere x86-64. Note: an AppImage does **not** install
+the Polkit policy or systemd units — privileged operations from an AppImage will
+still trigger a pkexec prompt, and the background timer is not auto-enabled.
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+### Uninstall
 
-## 🙏 Acknowledgments
+```sh
+sudo apt remove local-site-manager      # .deb
+rm packaging/dist/*.AppImage            # AppImage: just delete the file
+```
 
-- [Electron](https://www.electronjs.org/) - Cross-platform desktop apps
-- [React](https://react.dev/) - UI library
-- [TailwindCSS](https://tailwindcss.com/) - Utility-first CSS framework
-- [shadcn/ui](https://ui.shadcn.com/) - Design inspiration
-- [Lucide](https://lucide.dev/) - Beautiful icons
+## CLI
 
-## 📧 Contact
+```sh
+site-manager ca init                       # generate the internal CA
+site-manager site create \
+    --name app --domain app.test --type php --php 8.3 \
+    --wildcard --aliases www.app.test --configure
+site-manager site list
+site-manager ssl create --site app         # issue cert (domain + wildcard + SANs)
+site-manager ssl renew 1
+site-manager ssl delete 1
+site-manager nginx test                    # nginx -t (privileged)
+site-manager nginx reload                  # systemctl reload nginx (privileged)
+site-manager service restart php8.4-fpm
+site-manager dns apply --tld test          # write dnsmasq drop-in (privileged)
+site-manager diagnose
+site-manager status
+site-manager backup create
+site-manager --dry-run site create ...     # privileged helper runs in dry-run
+```
 
-**danidoble** - [@danidoble](https://github.com/danidoble)
+`--dry-run` is global: it forces the privileged helper to print what it would do
+and execute nothing — safe in any environment.
 
-Project Link: [https://github.com/danidoble/site-manager](https://github.com/danidoble/site-manager)
+## REST API
 
----
+```sh
+local-site-manager-api            # listens on 127.0.0.1:5847
+```
 
-<div align="center">
-Made with ❤️ by danidoble
-</div>
+Endpoints (all JSON):
+
+```
+GET  /api/health
+GET  /api/status
+GET  /api/diagnostics
+GET  /api/templates
+GET  /api/sites                      ?search=&page=1&per_page=50
+POST /api/sites                      { NewSite }
+GET  /api/sites/:id
+DEL  /api/sites/:id
+POST /api/sites/:id/configure        { ssl: bool }
+POST /api/sites/:id/cert
+GET  /api/sites/:id/health
+GET  /api/certs
+POST /api/certs/:id/renew
+POST /api/ssl/create                 { site?, domains[] }
+POST /api/ssl/renew                  { id }
+GET  /api/nginx/test
+POST /api/nginx/reload
+GET  /api/backups
+POST /api/backups
+POST /api/backups/:name/restore
+```
+
+## GUI
+
+```sh
+local-site-manager-gui
+```
+
+Tabs: **Dashboard** (status + diagnostics), **Sites** (list, create, open,
+configure), **SSL** (certs, init/install CA), **Diagnostics**, **Logs**,
+**Backups**. Heavy work runs on worker threads; results reach the UI over an
+mpsc channel polled on the GTK main thread, so the UI never blocks.
+
+## Storage
+
+Default: `$XDG_CONFIG_HOME/local-site-manager` (or `~/.config/local-site-manager`).
+
+```
+database.sqlite        # sites, aliases, certs, ca, proxies, health_checks
+config.toml            # config (dry_run, api_port, layout, provider, paths)
+logs/app.log           # daily-rotated tracing log
+backups/               # tar.gz archives
+certificates/          # issued leaf certs + keys
+ca/                    # rootCA.{crt,key}
+nginx-generated/       # rendered configs (local copy)
+```
+
+Override the root with `storage_root` in `config.toml`.
+
+## Security model (specs §Security)
+
+- GUI / API / CLI **never run as root**.
+- Only `local-site-manager-privileged` runs privileged, via **pkexec** + a
+  Polkit policy (`assets/polkit/local.lsm.policy`) that requires admin auth.
+- All free-form input is validated (domains, site names, paths, proxy targets)
+  against allowlists; shell-outs use `Command` arg vectors — never `sh -c` — to
+  prevent injection.
+- Every privileged action is logged to stderr with its op name.
+
+Install the Polkit policy + helper for production use:
+
+```sh
+sudo install -m 0644 assets/polkit/local.lsm.policy \
+    /usr/share/polkit-1/actions/local.lsm.policy
+sudo install -m 0755 target/release/local-site-manager-privileged \
+    /usr/local/bin/local-site-manager-privileged
+```
+
+(Then point `config.privileged_helper` at that path, or rely on `PATH`.)
+
+## Roadmap (deferred from the spec)
+
+- systemd service/timer auto-install + `background` wiring to the shipped units.
+- Flatpak packaging (CI).
+- Richer GUI editors (full site form, backup restore UI, live log streaming).
+- Apache / Caddy / Traefik web-server providers behind the `WebServerProvider` trait.
+- Custom certificate providers behind the `CertProvider` trait.
+
+## License
+
+MIT.

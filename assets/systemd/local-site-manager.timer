@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Local Site Manager background tasks periodically
+Documentation=man:local-site-manager(1)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
