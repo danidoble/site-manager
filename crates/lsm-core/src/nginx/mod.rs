@@ -14,8 +14,10 @@ use crate::config::{Config, NginxLayout};
 use crate::domain::{Site, SslCertificate};
 use crate::error::{Error, Result};
 
-const SITE_CONF: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/nginx/site.conf.j2"));
+const SITE_CONF: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/nginx/site.conf.j2"
+));
 
 /// Resolved nginx filesystem locations.
 #[derive(Debug, Clone)]

@@ -1,8 +1,8 @@
 //! DNS helpers (specs §DNS).
 //!
-//! Default DNS strategy is dnsmasq (no automatic /etc/hosts edits). This module
-//! generates drop-in config and human setup guides for dnsmasq, /etc/hosts, and
-//! wildcard setups.
+//! Default DNS strategy is dnsmasq plus systemd-resolved routing for development
+//! TLDs. This module generates drop-in config and human setup guides for
+//! dnsmasq, /etc/hosts, and wildcard setups.
 
 /// dnsmasq drop-in mapping a TLD to localhost.
 ///
@@ -11,31 +11,49 @@ pub fn dnsmasq_snippet(tld: &str, ip: &str) -> String {
     format!(
         "# Local Site Manager — wildcard DNS for .{tld}\n\
          address=/.{tld}/{ip}\n\
+         listen-address=127.0.0.1\n\
+         port=5353\n\
          local=/{tld}/\n"
     )
 }
 
-/// Path for the dnsmasq drop-in (NetworkManager-aware on Ubuntu).
+/// Path for the dnsmasq drop-in.
 pub fn dnsmasq_target() -> String {
-    // Ubuntu's NetworkManager ships a dnsmasq instance; this path works there.
-    "/etc/NetworkManager/dnsmasq.d/local-site-manager.conf".to_string()
+    "/etc/dnsmasq.d/local-site-manager.conf".to_string()
+}
+
+pub fn resolved_target() -> String {
+    "/etc/systemd/resolved.conf.d/local-site-manager.conf".to_string()
+}
+
+pub fn resolved_snippet(tld: &str) -> String {
+    format!(
+        "# Local Site Manager — route .{tld} to local dnsmasq\n\
+         [Resolve]\n\
+         DNS=127.0.0.1:5353\n\
+         Domains=~{tld}\n"
+    )
 }
 
 /// Markdown guide for the dnsmasq path.
 pub fn guide_dnsmasq(tld: &str, ip: &str) -> String {
     format!(
-        "# dnsmasq setup (recommended)\n\n\
-         Map all `.{tld}` names to {ip}.\n\n\
-         1. Install dnsmasq (or use NetworkManager's built-in instance):\n\n   \
+        "# dnsmasq + systemd-resolved setup (recommended)\n\n\
+         Map all `.{tld}` names to {ip} through dnsmasq on localhost port 5353, then route only the development TLD with systemd-resolved.\n\n\
+         1. Install dnsmasq if it is not already installed:\n\n   \
          ```sh\n   sudo apt install dnsmasq\n   ```\n\n\
-         2. Create the drop-in:\n\n   \
+         2. Create the dnsmasq drop-in:\n\n   \
          ```sh\n   sudo tee {target} <<'EOF'\n{snippet}EOF\n   ```\n\n\
-         3. Restart the resolver:\n\n   \
-         ```sh\n   sudo systemctl restart NetworkManager\n   # or: sudo systemctl restart dnsmasq\n   ```\n",
+         3. Create the systemd-resolved route:\n\n   \
+         ```sh\n   sudo mkdir -p /etc/systemd/resolved.conf.d\n   sudo tee {resolved_target} <<'EOF'\n{resolved_snippet}EOF\n   ```\n\n\
+         4. Restart and flush caches:\n\n   \
+         ```sh\n   sudo systemctl restart dnsmasq\n   sudo systemctl restart systemd-resolved\n   sudo resolvectl flush-caches\n   ```\n",
         tld = tld,
         ip = ip,
         target = dnsmasq_target(),
         snippet = dnsmasq_snippet(tld, ip),
+        resolved_target = resolved_target(),
+        resolved_snippet = resolved_snippet(tld),
     )
 }
 
@@ -55,7 +73,7 @@ pub fn guide_wildcards(tld: &str) -> String {
     format!(
         "# Wildcard domains\n\n\
          - **dnsmasq**: `address=/.{tld}/127.0.0.1` resolves every `*.{tld}`.\n\
-         - **systemd-resolved**: `systemd-resolve --mklift ...` is not used by this app.\n\
+         - **systemd-resolved**: `Domains=~{tld}` routes only this development TLD to dnsmasq on `127.0.0.1:5353`.\n\
          - **/etc/hosts**: cannot express wildcards; list domains explicitly.\n",
         tld = tld,
     )

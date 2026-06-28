@@ -4,11 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4 as gtk;
-use gtk::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
-use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled, Kind};
+use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled};
 use crate::ui::{worker_diagnostics, AppCtx};
 use lsm_core::domain::{DiagnosticResult, DiagnosticStatus};
 
@@ -88,15 +87,18 @@ impl DiagPage {
 }
 
 fn row(d: &DiagnosticResult) -> gtk::Widget {
-    let (kind, label) = match d.status {
-        DiagnosticStatus::Pass => (Kind::Success, "Pass"),
-        DiagnosticStatus::Warn => (Kind::Warning, "Warn"),
-        DiagnosticStatus::Fail => (Kind::Error, "Fail"),
+    let (icon, label) = match d.status {
+        DiagnosticStatus::Pass => ("emblem-ok-symbolic", "Pass"),
+        DiagnosticStatus::Warn => ("dialog-warning-symbolic", "Warn"),
+        DiagnosticStatus::Fail => ("dialog-error-symbolic", "Fail"),
     };
     let r = adw::ActionRow::builder()
         .title(&d.name)
         .subtitle(&d.message)
         .build();
-    r.add_suffix(&widgets::pill(kind, label));
+    r.add_prefix(&gtk::Image::from_icon_name(icon));
+    let text = gtk::Label::new(Some(label));
+    text.add_css_class("dim-label");
+    r.add_suffix(&text);
     r.upcast()
 }

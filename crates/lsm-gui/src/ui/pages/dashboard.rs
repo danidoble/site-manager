@@ -1,11 +1,10 @@
 //! Dashboard: at-a-glance stat cards + recent activity.
 
 use gtk4 as gtk;
-use gtk::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
-use crate::ui::widgets::{self, clear_box, clear_listbox, margin_all, stat_card};
+use crate::ui::widgets::{clear_box, clear_listbox, margin_all};
 use crate::ui::{worker_diagnostics, worker_status, AppCtx, Event};
 use lsm_core::domain::{Site, Status};
 
@@ -41,17 +40,10 @@ impl DashboardPage {
         let recent = gtk::ListBox::new();
         recent.set_selection_mode(gtk::SelectionMode::None);
         recent.add_css_class("boxed-list");
-        let recent_group = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        recent_group.add_css_class("stat-card");
-        let recent_title = gtk::Label::new(Some("Recent activity"));
-        recent_title.add_css_class("heading");
-        recent_title.set_halign(gtk::Align::Start);
-        let recent_sub = gtk::Label::new(Some("Latest local changes"));
-        recent_sub.add_css_class("dim-more");
-        recent_sub.set_halign(gtk::Align::Start);
-        recent_group.append(&recent_title);
-        recent_group.append(&recent_sub);
-        recent_group.append(&recent);
+        let recent_group = adw::PreferencesGroup::new();
+        recent_group.set_title("Recent activity");
+        recent_group.set_description(Some("Latest local changes"));
+        recent_group.add(&recent);
 
         let lower = gtk::Box::new(gtk::Orientation::Horizontal, 14);
         lower.set_homogeneous(true);
@@ -77,31 +69,40 @@ impl DashboardPage {
     pub fn set_status(&self, st: &Status) {
         clear_box(&self.cards);
 
-        let grid = gtk::Grid::new();
-        grid.set_column_spacing(14);
-        grid.set_column_homogeneous(true);
-
         let php = if st.php_versions.is_empty() {
             st.php_status.clone()
         } else {
             st.php_versions.join(", ")
         };
 
-        let items: [(&str, String, &str); 4] = [
-            ("Local sites", st.sites_count.to_string(), "managed"),
-            ("SSL valid", st.ssl_status.clone(), "certificates"),
-            ("Nginx", normalize_ok(&st.nginx_status), st.nginx_layout.as_str()),
-            ("dnsmasq", normalize_ok(&st.dnsmasq_status), "*.test resolver"),
-        ];
-        for (i, (t, v, s)) in items.iter().enumerate() {
-            let card = stat_card(t, v, s);
-            grid.attach(&card, i as i32, 0, 1, 1);
-        }
-        let php_sub = gtk::Label::new(Some(&format!("PHP-FPM detected: {php}")));
-        php_sub.add_css_class("dim-more");
-        php_sub.set_halign(gtk::Align::Start);
-        self.cards.append(&grid);
-        self.cards.append(&php_sub);
+        let group = adw::PreferencesGroup::new();
+        group.set_title("Overview");
+        group.set_description(Some(&format!("PHP-FPM detected: {php}")));
+        group.add(&overview_row(
+            "Local sites",
+            "Managed domains",
+            "applications-internet-symbolic",
+            &st.sites_count.to_string(),
+        ));
+        group.add(&overview_row(
+            "SSL",
+            "Local certificate authority",
+            "channel-secure-symbolic",
+            &st.ssl_status,
+        ));
+        group.add(&overview_row(
+            "Nginx",
+            st.nginx_layout.as_str(),
+            "network-server-symbolic",
+            &normalize_ok(&st.nginx_status),
+        ));
+        group.add(&overview_row(
+            "DNS",
+            "*.test resolver",
+            "network-workgroup-symbolic",
+            &normalize_ok(&st.dnsmasq_status),
+        ));
+        self.cards.append(&group);
     }
 
     pub fn set_recent(&self, sites: &[Site]) {
@@ -115,21 +116,38 @@ impl DashboardPage {
         for s in recent.iter().take(6) {
             let row = adw::ActionRow::builder()
                 .title(&s.name)
-                .subtitle(&format!("{} · {}", s.primary_domain, short_date(&s.updated_at)))
+                .subtitle(&format!(
+                    "{} · {}",
+                    s.primary_domain,
+                    short_date(&s.updated_at)
+                ))
                 .build();
-            row.add_prefix(&type_badge(s));
-            let kind = if s.ssl_cert_id.is_some() {
-                widgets::Kind::Success
+            row.add_prefix(&site_type_icon(s));
+            row.add_suffix(&status_text(if s.ssl_cert_id.is_some() {
+                "SSL"
             } else {
-                widgets::Kind::Inactive
-            };
-            row.add_suffix(&widgets::pill(
-                kind,
-                if s.ssl_cert_id.is_some() { "SSL" } else { "no SSL" },
-            ));
+                "No SSL"
+            }));
             self.recent.append(&row);
         }
     }
+}
+
+fn overview_row(title: &str, subtitle: &str, icon: &str, value: &str) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .build();
+    row.add_prefix(&gtk::Image::from_icon_name(icon));
+    row.add_suffix(&status_text(value));
+    row
+}
+
+fn status_text(value: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(value));
+    label.add_css_class("dim-label");
+    label.set_xalign(1.0);
+    label
 }
 
 fn recent_empty_row() -> gtk::Widget {
@@ -144,7 +162,9 @@ fn recent_empty_row() -> gtk::Widget {
     let title = gtk::Label::new(Some("No local activity yet"));
     title.add_css_class("heading");
     title.set_halign(gtk::Align::Start);
-    let sub = gtk::Label::new(Some("Create your first domain to start seeing recent changes here."));
+    let sub = gtk::Label::new(Some(
+        "Create your first domain to start seeing recent changes here.",
+    ));
     sub.add_css_class("dim-more");
     sub.set_halign(gtk::Align::Start);
     box_.append(&title);
@@ -171,7 +191,10 @@ fn service_controls(ctx: &AppCtx) -> gtk::Widget {
         ("Restart PHP-FPM", "restart-php", "php-fpm"),
         ("Auto-renew timer", "is-enabled", "local-site-manager.timer"),
     ] {
-        let row = adw::ActionRow::builder().title(title).subtitle(service).build();
+        let row = adw::ActionRow::builder()
+            .title(title)
+            .subtitle(service)
+            .build();
         let btn = gtk::Button::from_icon_name(if action == "is-enabled" {
             "emblem-system-symbolic"
         } else {
@@ -191,7 +214,9 @@ fn service_controls(ctx: &AppCtx) -> gtk::Widget {
                         if action == "restart-php" {
                             let versions = lsm_core::diagnostics::detect_php_fpm_versions();
                             if versions.is_empty() {
-                                return Err(lsm_core::Error::Other("no php-fpm versions detected".into()));
+                                return Err(lsm_core::Error::Other(
+                                    "no php-fpm versions detected".into(),
+                                ));
                             }
                             for version in versions {
                                 app.systemctl("restart", &format!("php{version}-fpm"))?;
@@ -228,14 +253,14 @@ fn service_controls(ctx: &AppCtx) -> gtk::Widget {
     group.upcast()
 }
 
-fn type_badge(s: &Site) -> gtk::Label {
+fn site_type_icon(s: &Site) -> gtk::Image {
     use lsm_core::domain::SiteType;
-    let text = match s.site_type {
-        SiteType::Php => format!("PHP {}", s.php_version.clone().unwrap_or_default()),
-        SiteType::Proxy => format!("Proxy {}", s.proxy_target.clone().unwrap_or_default()),
-        SiteType::Static => "static".to_string(),
+    let icon = match s.site_type {
+        SiteType::Php => "application-x-php-symbolic",
+        SiteType::Proxy => "network-transmit-receive-symbolic",
+        SiteType::Static => "text-html-symbolic",
     };
-    widgets::pill(widgets::Kind::Inactive, &text)
+    gtk::Image::from_icon_name(icon)
 }
 
 fn short_date(iso: &str) -> &str {

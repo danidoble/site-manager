@@ -195,11 +195,20 @@ enum ServiceAction {
 #[derive(Subcommand, Debug)]
 enum DnsAction {
     /// Print the dnsmasq drop-in for a TLD.
-    Wizard { #[arg(long, default_value = "test")] tld: String },
+    Wizard {
+        #[arg(long, default_value = "test")]
+        tld: String,
+    },
     /// Print setup guides (dnsmasq / hosts / wildcards).
-    Guides { #[arg(long, default_value = "test")] tld: String },
+    Guides {
+        #[arg(long, default_value = "test")]
+        tld: String,
+    },
     /// Apply the dnsmasq drop-in (privileged).
-    Apply { #[arg(long, default_value = "test")] tld: String },
+    Apply {
+        #[arg(long, default_value = "test")]
+        tld: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -316,12 +325,18 @@ fn site(app: &mut App, action: SiteAction) -> Result<()> {
                 println!("issued cert id={} for {}", cert.id, cert.domains.join(", "));
             }
             if configure {
-                let _ = app.configure_site(site.id, false).context("configure site")?;
+                let _ = app
+                    .configure_site(site.id, false)
+                    .context("configure site")?;
                 println!("nginx configured and reloaded");
             }
             Ok(())
         }
-        SiteAction::List { search, page, per_page } => {
+        SiteAction::List {
+            search,
+            page,
+            per_page,
+        } => {
             let sites = app.list_sites(search.as_deref(), page, per_page)?;
             println!("{}", serde_json::to_string_pretty(&sites)?);
             Ok(())
@@ -369,7 +384,9 @@ fn ssl(app: &mut App, action: SslAction) -> Result<()> {
                 if domains.is_empty() {
                     return Err(anyhow!("provide --site <name> or --domains a,b"));
                 }
-                let cert = app.issue_domains(None, "standalone", &domains).context("issue cert")?;
+                let cert = app
+                    .issue_domains(None, "standalone", &domains)
+                    .context("issue cert")?;
                 println!("{}", serde_json::to_string_pretty(&cert)?);
                 Ok(())
             }
@@ -521,7 +538,12 @@ fn background(app: &mut App) -> Result<()> {
     let sites = app.list_sites(None, 1, 500)?;
     for s in sites.iter().filter(|s| s.proxy_target.is_some()) {
         match app.check_proxy(s.id) {
-            Ok(h) => println!("health {}: {} ({}ms)", s.name, h.status_code.unwrap_or(0), h.response_ms.unwrap_or(0)),
+            Ok(h) => println!(
+                "health {}: {} ({}ms)",
+                s.name,
+                h.status_code.unwrap_or(0),
+                h.response_ms.unwrap_or(0)
+            ),
             Err(e) => println!("health {}: {e}", s.name),
         }
     }

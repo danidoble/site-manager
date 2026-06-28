@@ -86,7 +86,7 @@ cargo install cargo-deb
 # build the package
 ./packaging/build-deb.sh
 # install system-wide
-sudo apt install ./target/debian/local-site-manager_2.0.2-1_amd64.deb
+sudo apt install ./target/debian/local-site-manager_2.0.3-1_amd64.deb
 ```
 
 The `.deb` ships all four binaries (`/usr/bin/`), the GNOME `.desktop` entry,
@@ -105,7 +105,7 @@ privileged action (nginx reload, CA trust install); the
 
 ```sh
 ./packaging/build-appimage.sh      # downloads linuxdeploy + appimagetool on first run
-./packaging/dist/local-site-manager-2.0.2-x86_64.AppImage
+./packaging/dist/local-site-manager-2.0.3-x86_64.AppImage
 ```
 
 Single portable file; runs anywhere x86-64. Note: an AppImage does **not** install
@@ -156,6 +156,45 @@ site-manager --dry-run site create ...     # privileged helper runs in dry-run
 
 `--dry-run` is global: it forces the privileged helper to print what it would do
 and execute nothing — safe in any environment.
+
+## DNS with dnsmasq and systemd-resolved
+
+The app configures wildcard development domains by running dnsmasq on
+`127.0.0.1:5353` and routing only the selected TLD through systemd-resolved.
+It no longer writes NetworkManager dnsmasq drop-ins.
+
+Manual setup for `.test` and `.local`:
+
+```bash
+sudo nano /etc/dnsmasq.d/dev-domains.conf
+
+# Resolve any *.test to localhost
+address=/.test/127.0.0.1
+
+# Resolve any *.local to localhost
+address=/.local/127.0.0.1
+
+# Listen only on localhost to avoid leaking DNS to the outside world
+listen-address=127.0.0.1
+
+# Port to listen on (default is 53 but we use 5353 to avoid conflicts with systemd-resolved)
+port=5353
+
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo nano /etc/systemd/resolved.conf.d/dev-domains.conf
+
+[Resolve]
+DNS=127.0.0.1:5353
+Domains=~test ~local
+
+sudo systemctl restart dnsmasq
+sudo systemctl restart systemd-resolved
+sudo resolvectl flush-caches
+```
+
+`site-manager dns apply --tld test` writes the equivalent managed drop-ins
+idempotently. If the configured rule already exists, the privileged helper
+reports that it already exists and leaves the file unchanged.
 
 ## REST API
 

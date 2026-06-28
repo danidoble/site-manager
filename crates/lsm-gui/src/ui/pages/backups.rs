@@ -1,7 +1,6 @@
 //! Backups: list + create + restore.
 
 use gtk4 as gtk;
-use gtk::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
@@ -69,7 +68,8 @@ impl BackupsPage {
             return;
         }
 
-        self.list.append(&header_row(&["Backup", "Created", "Size", "Actions"]));
+        self.list
+            .append(&header_row(&["Backup", "Created", "Size", "Actions"]));
         for b in items {
             self.list.append(&row(b, ctx));
         }
@@ -100,7 +100,9 @@ fn row(b: &BackupEntry, ctx: &AppCtx) -> gtk::Widget {
             let name_resp = name.clone();
             let alert = adw::AlertDialog::new(
                 Some("Restore backup?"),
-                Some(&format!("This restores config from “{name}”. Current files may be overwritten.")),
+                Some(&format!(
+                    "This restores config from “{name}”. Current files may be overwritten."
+                )),
             );
             alert.add_response("cancel", "Cancel");
             alert.add_response("restore", "Restore");

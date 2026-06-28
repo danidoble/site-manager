@@ -42,11 +42,22 @@ pub enum PrivilegedCommand {
         group: Option<String>,
     },
     /// Write a dnsmasq config drop-in.
-    SetDnsmasq { target_path: String, content: String },
+    SetDnsmasq {
+        target_path: String,
+        content: String,
+    },
+    /// Write systemd-resolved routing for the dnsmasq development TLD.
+    SetResolved {
+        target_path: String,
+        content: String,
+    },
     /// Ensure a directory exists.
     EnsureDir { path: String },
     /// Add an idempotent managed /etc/hosts block for a site.
-    AddHosts { site_name: String, domains: Vec<String> },
+    AddHosts {
+        site_name: String,
+        domains: Vec<String>,
+    },
     /// Remove the managed /etc/hosts block for a site.
     RemoveHosts { site_name: String },
     /// Install the bundled systemd units used for automatic SSL renewal.
@@ -96,22 +107,28 @@ pub fn run(cmd: &PrivilegedCommand, dry_run: bool, helper: &str) -> Result<Privi
 /// Execute a privileged command and return the helper response even when the
 /// underlying operation fails. Useful for checks such as `nginx -t`, where the
 /// stderr is the actual diagnostic payload.
-pub fn run_capture(cmd: &PrivilegedCommand, dry_run: bool, helper: &str) -> Result<PrivilegedResult> {
+pub fn run_capture(
+    cmd: &PrivilegedCommand,
+    dry_run: bool,
+    helper: &str,
+) -> Result<PrivilegedResult> {
     let payload = serde_json::to_string(cmd)?;
+    let resolved_helper = resolve_helper(helper);
+    let helper_arg = resolved_helper.as_deref().unwrap_or(helper);
     let mut command = if dry_run {
-        let mut c = std::process::Command::new(helper);
+        let mut c = std::process::Command::new(helper_arg);
         c.arg("--dry-run");
         c
     } else {
         let mut c = std::process::Command::new("pkexec");
-        c.arg(helper);
+        c.arg(helper_arg);
         c
     };
     command.arg(&payload);
 
     let output = command
         .output()
-        .map_err(|e| Error::Privileged(format!("spawn helper `{helper}`: {e}")))?;
+        .map_err(|e| Error::Privileged(format!("spawn helper `{helper_arg}`: {e}")))?;
 
     if !output.status.success() && output.stdout.is_empty() {
         return Err(Error::Privileged(format!(
@@ -129,6 +146,30 @@ pub fn run_capture(cmd: &PrivilegedCommand, dry_run: bool, helper: &str) -> Resu
         ))
     })?;
     Ok(result)
+}
+
+fn resolve_helper(helper: &str) -> Option<String> {
+    if helper.contains('/') || which(helper).is_some() {
+        return Some(helper.to_string());
+    }
+    let appdir = std::env::var_os("APPDIR").map(std::path::PathBuf::from)?;
+    let bundled = appdir.join("usr").join("bin").join(helper);
+    if bundled.is_file() {
+        Some(bundled.to_string_lossy().to_string())
+    } else {
+        Some(helper.to_string())
+    }
+}
+
+fn which(bin: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// True when the process is effectively running with elevated privileges.

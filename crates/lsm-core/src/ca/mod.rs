@@ -12,7 +12,8 @@ use openssl::hash::{hash, MessageDigest};
 use openssl::nid::Nid;
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
-use openssl::x509::{X509, X509Builder, X509Name};
+use openssl::x509::extension::{BasicConstraints, KeyUsage};
+use openssl::x509::{X509Builder, X509Name, X509};
 
 use crate::domain::Ca;
 use crate::error::Result;
@@ -24,10 +25,7 @@ const CA_SUBJECT: &str = "Local Site Manager Local CA";
 
 /// Where the CA material lives inside a storage root.
 pub fn ca_paths(ca_dir: &Path) -> (PathBuf, PathBuf) {
-    (
-        ca_dir.join("rootCA.crt"),
-        ca_dir.join("rootCA.key"),
-    )
+    (ca_dir.join("rootCA.crt"), ca_dir.join("rootCA.key"))
 }
 
 /// Generate (or overwrite) the internal CA at `ca_dir`.
@@ -58,6 +56,15 @@ pub fn generate_ca(ca_dir: &Path, provider: &str) -> Result<Ca> {
     b.set_not_before(nb.as_ref())?;
     let na = Asn1Time::days_from_now(CA_VALIDITY_DAYS)?;
     b.set_not_after(na.as_ref())?;
+
+    b.append_extension(BasicConstraints::new().critical().ca().pathlen(0).build()?)?;
+    b.append_extension(
+        KeyUsage::new()
+            .critical()
+            .key_cert_sign()
+            .crl_sign()
+            .build()?,
+    )?;
 
     b.sign(&pkey, MessageDigest::sha256())?;
     let cert = b.build();
@@ -136,7 +143,13 @@ mod tests {
 
     fn name_str(n: &openssl::x509::X509NameRef) -> String {
         n.entries()
-            .map(|e| format!("{}={}", e.object().nid().as_raw(), e.data().to_string().unwrap_or_default()))
+            .map(|e| {
+                format!(
+                    "{}={}",
+                    e.object().nid().as_raw(),
+                    e.data().to_string().unwrap_or_default()
+                )
+            })
             .collect::<Vec<_>>()
             .join(",")
     }

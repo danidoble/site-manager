@@ -1,8 +1,7 @@
 //! Settings: appearance, runtime detection, provider + config info.
 
-use gtk4 as gtk;
-use gtk::prelude::*;
 use gtk::StringList;
+use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
@@ -14,6 +13,7 @@ pub struct SettingsPage {
     pub body: gtk::Widget,
     pub actions: Vec<gtk::Widget>,
     timer_status: gtk::Label,
+    php_versions: gtk::Label,
 }
 
 impl SettingsPage {
@@ -24,7 +24,10 @@ impl SettingsPage {
         // Appearance.
         let appearance = adw::PreferencesGroup::new();
         appearance.set_title("Appearance");
-        let mode_row = adw::ActionRow::builder().title("Color scheme").subtitle("Light, dark, or follow system").build();
+        let mode_row = adw::ActionRow::builder()
+            .title("Color scheme")
+            .subtitle("Light, dark, or follow system")
+            .build();
         let modes = StringList::new(&["System", "Light", "Dark"]);
         let mode_dd = gtk::DropDown::builder().model(&modes).build();
         let mode_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -43,18 +46,27 @@ impl SettingsPage {
         inner.append(&appearance);
 
         // Runtime detection + provider info (from config).
+        let php_versions = gtk::Label::new(Some("Detecting..."));
+        php_versions.add_css_class("dim-more");
+        php_versions.add_css_class("monospace");
+        php_versions.set_xalign(0.0);
         let cfg = lsm_core::App::new().map(|a| (a.config.clone(), a.paths.root.clone()));
         if let Ok((config, root)) = cfg {
             let info = adw::PreferencesGroup::new();
             info.set_title("System");
             info.add(&kv_row("Storage root", &root.display().to_string()));
             info.add(&kv_row("Web server", &config.web_server));
-            info.add(&kv_row("Cert provider", &format!("{:?}", config.cert_provider)));
+            info.add(&kv_row(
+                "Cert provider",
+                &format!("{:?}", config.cert_provider),
+            ));
             info.add(&kv_row("WWW root", &config.www_root));
             info.add(&kv_row("API port", &config.api_port.to_string()));
-            if !config.php_versions.is_empty() {
-                info.add(&kv_row("PHP versions", &config.php_versions.join(", ")));
-            }
+            info.add(&label_row(
+                "PHP versions",
+                "Detected php-fpm versions",
+                &php_versions,
+            ));
             inner.append(&info);
         }
 
@@ -92,12 +104,18 @@ impl SettingsPage {
             body: root.upcast(),
             actions: vec![],
             timer_status,
+            php_versions,
         }
     }
 
     /// Refresh runtime info from a status snapshot (PHP versions etc.).
-    pub fn set_status(&self, _st: &Status) {
-        // Config is read at build; live PHP detection could refresh here later.
+    pub fn set_status(&self, st: &Status) {
+        let text = if st.php_versions.is_empty() {
+            "None detected".to_string()
+        } else {
+            st.php_versions.join(", ")
+        };
+        self.php_versions.set_text(&text);
         if self.timer_status.text().is_empty() {
             self.timer_status.set_text("Not checked");
         }
@@ -127,8 +145,16 @@ fn timer_button_row(ctx: &AppCtx, status_label: &gtk::Label) -> adw::ActionRow {
 
     for (label, action, icon) in [
         ("Install", TimerAction::Install, "document-save-symbolic"),
-        ("Enable", TimerAction::Enable, "media-playback-start-symbolic"),
-        ("Disable", TimerAction::Disable, "media-playback-stop-symbolic"),
+        (
+            "Enable",
+            TimerAction::Enable,
+            "media-playback-start-symbolic",
+        ),
+        (
+            "Disable",
+            TimerAction::Disable,
+            "media-playback-stop-symbolic",
+        ),
         ("Restart", TimerAction::Restart, "view-refresh-symbolic"),
         ("Status", TimerAction::Status, "dialog-information-symbolic"),
     ] {
@@ -217,5 +243,14 @@ fn kv_row(k: &str, v: &str) -> adw::ActionRow {
     lbl.add_css_class("dim-more");
     lbl.add_css_class("monospace");
     row.add_suffix(&lbl);
+    row
+}
+
+fn label_row(k: &str, subtitle: &str, label: &gtk::Label) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(k)
+        .subtitle(subtitle)
+        .build();
+    row.add_suffix(label);
     row
 }

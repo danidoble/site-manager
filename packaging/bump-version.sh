@@ -29,6 +29,11 @@ fi
 echo "==> Updating Cargo workspace version to $VERSION"
 sed -i -E "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
 
+echo "==> Updating embedded app info"
+if [[ -f assets/app-info.json ]]; then
+    sed -i -E "s/\"version\": \"[^\"]+\"/\"version\": \"$VERSION\"/" assets/app-info.json
+fi
+
 echo "==> Updating Debian revision to $DEB_REVISION"
 if grep -q '^revision = ' crates/lsm-gui/Cargo.toml; then
     sed -i -E "s/^revision = \".*\"/revision = \"$DEB_REVISION\"/" crates/lsm-gui/Cargo.toml
@@ -60,7 +65,7 @@ Version updated.
 
 Next steps:
   git diff
-  git add Cargo.toml Cargo.lock crates/lsm-gui/Cargo.toml packaging/local-site-manager.metainfo.xml README.md
+  git add Cargo.toml Cargo.lock assets/app-info.json crates/lsm-gui/Cargo.toml packaging/local-site-manager.metainfo.xml README.md
   git commit -m "Release v$VERSION"
   git tag v$VERSION
   git push && git push origin v$VERSION

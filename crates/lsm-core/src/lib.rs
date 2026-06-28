@@ -24,8 +24,8 @@ pub mod validate;
 pub use app::App;
 pub use config::{CertProvider, Config, NginxLayout, Paths};
 pub use domain::{
-    BackupEntry, Ca, DiagnosticResult, DiagnosticStatus, HealthCheck, NewSite, PhpVersion,
-    Proxy, Runtime, Site, SiteType, SslCertificate, Status,
+    BackupEntry, Ca, DiagnosticResult, DiagnosticStatus, HealthCheck, NewSite, PhpVersion, Proxy,
+    Runtime, Site, SiteType, SslCertificate, Status,
 };
 pub use error::{Error, Result};
 pub use privileged::{PrivilegedCommand, PrivilegedResult};

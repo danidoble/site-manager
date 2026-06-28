@@ -1,9 +1,9 @@
 //! Health checks for proxy sites.
 
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 
-use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled, Kind};
+use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled};
 use crate::ui::{worker_health, AppCtx, Event};
 use lsm_core::domain::{HealthCheck, Site};
 
@@ -77,8 +77,10 @@ impl HealthPage {
 
     pub fn set_health(&self, items: &[(Site, Option<HealthCheck>)]) {
         clear_listbox(&self.list);
-        let proxies: Vec<&(Site, Option<HealthCheck>)> =
-            items.iter().filter(|(s, _)| s.site_type == lsm_core::domain::SiteType::Proxy).collect();
+        let proxies: Vec<&(Site, Option<HealthCheck>)> = items
+            .iter()
+            .filter(|(s, _)| s.site_type == lsm_core::domain::SiteType::Proxy)
+            .collect();
 
         if proxies.is_empty() {
             let empty = widgets::empty_state(
@@ -91,7 +93,8 @@ impl HealthPage {
             return;
         }
 
-        self.list.append(&header_row(&["Domain", "Target", "Last check", "Status"]));
+        self.list
+            .append(&header_row(&["Domain", "Target", "Last check", "Status"]));
         for (site, h) in proxies {
             self.list.append(&row(site, h));
         }
@@ -99,19 +102,21 @@ impl HealthPage {
 }
 
 fn row(site: &Site, h: &Option<HealthCheck>) -> gtk::Widget {
-    let (kind, label, sub) = match h {
+    let (icon, label, sub) = match h {
         Some(h) if h.healthy => (
-            Kind::Success,
+            "emblem-ok-symbolic",
             format!("Healthy · {} ms", h.response_ms.unwrap_or(0)),
             format!("last check {}", short(&h.checked_at)),
         ),
         Some(h) => (
-            Kind::Error,
+            "dialog-error-symbolic",
             "Unhealthy".to_string(),
-            h.error.clone().unwrap_or_else(|| short(&h.checked_at).to_string()),
+            h.error
+                .clone()
+                .unwrap_or_else(|| short(&h.checked_at).to_string()),
         ),
         None => (
-            Kind::Inactive,
+            "dialog-information-symbolic",
             "Not checked".to_string(),
             "click Check all".to_string(),
         ),
@@ -126,11 +131,26 @@ fn row(site: &Site, h: &Option<HealthCheck>) -> gtk::Widget {
     grid.set_margin_start(14);
     grid.set_margin_end(10);
     grid.attach(&text_cell(&site.primary_domain, true), 0, 0, 1, 1);
-    grid.attach(&text_cell(&site.proxy_target.clone().unwrap_or_default(), true), 1, 0, 1, 1);
+    grid.attach(
+        &text_cell(&site.proxy_target.clone().unwrap_or_default(), true),
+        1,
+        0,
+        1,
+        1,
+    );
     grid.attach(&text_cell(&sub, true), 2, 0, 1, 1);
-    grid.attach(&widgets::pill(kind, &label), 3, 0, 1, 1);
+    grid.attach(&status_cell(icon, &label), 3, 0, 1, 1);
     r.set_child(Some(&grid));
     r.upcast()
+}
+
+fn status_cell(icon: &str, text: &str) -> gtk::Box {
+    let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    box_.append(&gtk::Image::from_icon_name(icon));
+    let label = text_cell(text, false);
+    label.add_css_class("dim-label");
+    box_.append(&label);
+    box_
 }
 
 fn short(s: &str) -> &str {

@@ -51,12 +51,22 @@ impl Paths {
             }
         }
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".config").join("local-site-manager")
+        PathBuf::from(home)
+            .join(".config")
+            .join("local-site-manager")
     }
 
     /// Create all subdirectories if missing.
     pub fn ensure_dirs(&self) -> Result<()> {
-        for d in [&self.root, &self.logs, &self.backups, &self.certs, &self.ca, &self.templates, &self.nginx_out] {
+        for d in [
+            &self.root,
+            &self.logs,
+            &self.backups,
+            &self.certs,
+            &self.ca,
+            &self.templates,
+            &self.nginx_out,
+        ] {
             fs::create_dir_all(d)?;
         }
         Ok(())
@@ -162,14 +172,7 @@ fn default_www_root() -> String {
     "/var/www".to_string()
 }
 fn default_php_versions() -> Vec<String> {
-    vec![
-        "8.0".to_string(),
-        "8.1".to_string(),
-        "8.2".to_string(),
-        "8.3".to_string(),
-        "8.4".to_string(),
-        "8.5".to_string(),
-    ]
+    Vec::new()
 }
 fn default_helper() -> String {
     "local-site-manager-privileged".to_string()

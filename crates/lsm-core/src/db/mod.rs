@@ -7,13 +7,13 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::{
-    Ca, HealthCheck, NewSite, Proxy, Site, SiteType, SslCertificate,
-};
+use crate::domain::{Ca, HealthCheck, NewSite, Proxy, Site, SiteType, SslCertificate};
 use crate::error::{Error, Result};
 
-const SCHEMA_SQL: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/sql/schema.sql"));
+const SCHEMA_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/sql/schema.sql"
+));
 
 /// Open SQLite database handle.
 pub struct Db {
@@ -33,7 +33,10 @@ impl Db {
              PRAGMA synchronous = NORMAL;",
         )?;
         conn.execute_batch(SCHEMA_SQL)?;
-        let _ = conn.execute("ALTER TABLE sites ADD COLUMN websocket INTEGER NOT NULL DEFAULT 1", []);
+        let _ = conn.execute(
+            "ALTER TABLE sites ADD COLUMN websocket INTEGER NOT NULL DEFAULT 1",
+            [],
+        );
         Ok(Self { conn })
     }
 
@@ -98,7 +101,9 @@ impl Db {
              ORDER BY name ASC LIMIT ?3 OFFSET ?4",
         )?;
         let ids: Vec<i64> = stmt
-            .query_map(params![search.unwrap_or(""), like, limit, offset], |r| r.get(0))?
+            .query_map(params![search.unwrap_or(""), like, limit, offset], |r| {
+                r.get(0)
+            })?
             .filter_map(|r| r.ok())
             .collect();
         drop(stmt);
@@ -144,7 +149,8 @@ impl Db {
     }
 
     pub fn delete_site(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM sites WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM sites WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -193,9 +199,9 @@ impl Db {
     }
 
     pub fn proxies_for_site(&self, site_id: i64) -> Result<Vec<Proxy>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, site_id, target, runtime FROM proxies WHERE site_id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, site_id, target, runtime FROM proxies WHERE site_id = ?1")?;
         let rows = stmt.query_map(params![site_id], |r| {
             Ok(Proxy {
                 id: r.get(0)?,
@@ -262,13 +268,16 @@ impl Db {
     }
 
     pub fn delete_cert(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM certificates WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM certificates WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn detach_cert(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("UPDATE sites SET ssl_cert_id = NULL WHERE ssl_cert_id = ?1", params![id])?;
+        self.conn.execute(
+            "UPDATE sites SET ssl_cert_id = NULL WHERE ssl_cert_id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
@@ -279,7 +288,14 @@ impl Db {
         self.conn.execute(
             "INSERT INTO ca (provider, name, cert_path, key_path, fingerprint, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![c.provider, c.name, c.cert_path, c.key_path, c.fingerprint, now],
+            params![
+                c.provider,
+                c.name,
+                c.cert_path,
+                c.key_path,
+                c.fingerprint,
+                now
+            ],
         )?;
         Ok(())
     }
@@ -372,8 +388,7 @@ fn site_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Site> {
 
 fn cert_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SslCertificate> {
     let domains_json: String = r.get(3)?;
-    let domains: Vec<String> =
-        serde_json::from_str(&domains_json).unwrap_or_default();
+    let domains: Vec<String> = serde_json::from_str(&domains_json).unwrap_or_default();
     Ok(SslCertificate {
         id: r.get(0)?,
         site_id: r.get(1)?,
@@ -457,7 +472,10 @@ mod tests {
         assert!(db.get_ca().unwrap().is_some());
         db.upsert_ca(&ca, now).unwrap();
         // only one CA row
-        let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM ca", [], |r| r.get(0)).unwrap();
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM ca", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 1);
     }
 }

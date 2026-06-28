@@ -106,7 +106,11 @@ pub fn validate_proxy_target(target: &str) -> Result<()> {
     }
     let (host, port) = match t.rsplit_once(':') {
         Some((h, p)) => (h, p),
-        None => return Err(Error::Validation(format!("proxy target missing :port: {target}"))),
+        None => {
+            return Err(Error::Validation(format!(
+                "proxy target missing :port: {target}"
+            )))
+        }
     };
     if host.is_empty() || port.is_empty() {
         return Err(Error::Validation(format!("invalid proxy target: {target}")));

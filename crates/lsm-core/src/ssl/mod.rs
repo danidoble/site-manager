@@ -14,7 +14,7 @@ use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
-use openssl::x509::{X509, X509Builder, X509Extension, X509Name};
+use openssl::x509::{X509Builder, X509Extension, X509Name, X509};
 
 use crate::ca;
 use crate::error::{Error, Result};
@@ -37,7 +37,12 @@ pub struct IssuedCert {
 
 /// Issue a leaf certificate signed by the internal CA.
 #[allow(deprecated)] // X509Extension::new string API is deprecated but concise and correct here.
-pub fn issue_internal(ca_dir: &Path, out_dir: &Path, name: &str, domains: &[String]) -> Result<IssuedCert> {
+pub fn issue_internal(
+    ca_dir: &Path,
+    out_dir: &Path,
+    name: &str,
+    domains: &[String],
+) -> Result<IssuedCert> {
     let (ca_cert_path, ca_key_path) = ca::ca_paths(ca_dir);
     if !ca_cert_path.exists() || !ca_key_path.exists() {
         return Err(Error::Other(
@@ -82,9 +87,24 @@ pub fn issue_internal(ca_dir: &Path, out_dir: &Path, name: &str, domains: &[Stri
     let na = Asn1Time::days_from_now(LEAF_VALIDITY_DAYS)?;
     b.set_not_after(na.as_ref())?;
 
-    b.append_extension(X509Extension::new(None, None, "basicConstraints", "critical,CA:FALSE")?)?;
-    b.append_extension(X509Extension::new(None, None, "keyUsage", "critical,digitalSignature,keyEncipherment")?)?;
-    b.append_extension(X509Extension::new(None, None, "extendedKeyUsage", "serverAuth")?)?;
+    b.append_extension(X509Extension::new(
+        None,
+        None,
+        "basicConstraints",
+        "critical,CA:FALSE",
+    )?)?;
+    b.append_extension(X509Extension::new(
+        None,
+        None,
+        "keyUsage",
+        "critical,digitalSignature,keyEncipherment",
+    )?)?;
+    b.append_extension(X509Extension::new(
+        None,
+        None,
+        "extendedKeyUsage",
+        "serverAuth",
+    )?)?;
     let san = san_string(domains);
     b.append_extension(X509Extension::new(None, None, "subjectAltName", &san)?)?;
 
@@ -111,8 +131,8 @@ pub fn issue_internal(ca_dir: &Path, out_dir: &Path, name: &str, domains: &[Stri
 
 /// Issue a certificate via `mkcert`. Requires `mkcert` on PATH.
 pub fn issue_mkcert(out_dir: &Path, name: &str, domains: &[String]) -> Result<IssuedCert> {
-    let mkcert = which("mkcert")
-        .ok_or_else(|| Error::NotFound("mkcert binary not found on PATH".into()))?;
+    let mkcert =
+        which("mkcert").ok_or_else(|| Error::NotFound("mkcert binary not found on PATH".into()))?;
     fs::create_dir_all(out_dir)?;
     let cert_path = out_dir.join(format!("{name}.crt"));
     let key_path = out_dir.join(format!("{name}.key"));
@@ -189,7 +209,11 @@ pub fn expiring(not_after: &str, days: u32) -> bool {
     // not_after is an openssl display string; best-effort parse.
     let parsed = chrono::NaiveDateTime::parse_from_str(not_after, "%b %e %H:%M:%S %Y GMT")
         .ok()
-        .or_else(|| chrono::DateTime::parse_from_rfc3339(not_after).ok().map(|dt| dt.naive_utc()));
+        .or_else(|| {
+            chrono::DateTime::parse_from_rfc3339(not_after)
+                .ok()
+                .map(|dt| dt.naive_utc())
+        });
     match parsed {
         Some(dt) => {
             let expiry = dt.and_utc();
@@ -207,7 +231,13 @@ mod tests {
 
     fn name_str(n: &openssl::x509::X509NameRef) -> String {
         n.entries()
-            .map(|e| format!("{}={}", e.object().nid().as_raw(), e.data().to_string().unwrap_or_default()))
+            .map(|e| {
+                format!(
+                    "{}={}",
+                    e.object().nid().as_raw(),
+                    e.data().to_string().unwrap_or_default()
+                )
+            })
             .collect::<Vec<_>>()
             .join(",")
     }

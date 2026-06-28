@@ -16,7 +16,11 @@ use crate::error::Result;
 /// Create a backup archive in `backups_dir` from the given storage root.
 ///
 /// `name_stamp` is a caller-supplied timestamp string used in the filename.
-pub fn create_backup(backups_dir: &Path, storage_root: &Path, name_stamp: &str) -> Result<BackupEntry> {
+pub fn create_backup(
+    backups_dir: &Path,
+    storage_root: &Path,
+    name_stamp: &str,
+) -> Result<BackupEntry> {
     fs::create_dir_all(backups_dir)?;
     let archive_name = format!("backup-{name_stamp}.tar.gz");
     let archive_path = backups_dir.join(&archive_name);
@@ -138,7 +142,9 @@ mod tests {
 
         let dest = tmp.path().join("restore");
         let files = restore_backup(Path::new(&entry.path), &dest).unwrap();
-        assert!(files.iter().any(|p| p.to_string_lossy().contains("config.toml")));
+        assert!(files
+            .iter()
+            .any(|p| p.to_string_lossy().contains("config.toml")));
         assert_eq!(
             fs::read_to_string(dest.join("config.toml")).unwrap(),
             "dry_run = false"

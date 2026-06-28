@@ -1,7 +1,7 @@
-//! DNS setup: dnsmasq + /etc/hosts guides, apply-dnsmasq action.
+//! DNS setup: dnsmasq + systemd-resolved + /etc/hosts guides.
 
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 use libadwaita as adw;
 
 use crate::ui::widgets::margin_all;
@@ -18,7 +18,7 @@ pub struct DnsPage {
 
 impl DnsPage {
     pub fn build(ctx: &AppCtx) -> Self {
-        let apply = gtk::Button::with_label("Apply dnsmasq");
+        let apply = gtk::Button::with_label("Apply DNS");
 
         let tld_e = gtk::Entry::new();
         tld_e.set_text("test");
@@ -53,9 +53,24 @@ impl DnsPage {
         tld_box.append(&gtk::Label::new(Some("TLD:")));
         tld_box.append(&tld_e);
 
-        inner.append(&section("Using dnsmasq (recommended)", "Applies a drop-in resolver entry for your TLD.", Some(&tld_box.upcast::<gtk::Widget>()), &dnsmasq_lbl));
-        inner.append(&section("Using /etc/hosts (manual)", "Static entries — one line per host.", None, &hosts_lbl));
-        inner.append(&section("Wildcards", "How wildcard *.domain resolution works.", None, &wild_lbl));
+        inner.append(&section(
+            "Using dnsmasq + systemd-resolved (recommended)",
+            "Applies idempotent drop-ins for dnsmasq and systemd-resolved.",
+            Some(&tld_box.upcast::<gtk::Widget>()),
+            &dnsmasq_lbl,
+        ));
+        inner.append(&section(
+            "Using /etc/hosts (manual)",
+            "Static entries — one line per host.",
+            None,
+            &hosts_lbl,
+        ));
+        inner.append(&section(
+            "Wildcards",
+            "How wildcard *.domain resolution works.",
+            None,
+            &wild_lbl,
+        ));
 
         let clamp = adw::Clamp::new();
         clamp.set_maximum_size(820);
@@ -74,7 +89,11 @@ impl DnsPage {
                 std::thread::spawn(move || {
                     let guides = lsm_core::App::new().map(|a| a.dns_guides(&tld));
                     let _ = ctx.sender.send(match guides {
-                        Ok((d, h, w)) => Event::DnsGuides { dnsmasq: d, hosts: h, wildcards: w },
+                        Ok((d, h, w)) => Event::DnsGuides {
+                            dnsmasq: d,
+                            hosts: h,
+                            wildcards: w,
+                        },
                         Err(e) => Event::Error(e.to_string()),
                     });
                 });
@@ -127,12 +146,7 @@ fn mono_label() -> gtk::Label {
     l
 }
 
-fn section(
-    title: &str,
-    desc: &str,
-    extra: Option<&gtk::Widget>,
-    code: &gtk::Label,
-) -> gtk::Widget {
+fn section(title: &str, desc: &str, extra: Option<&gtk::Widget>, code: &gtk::Label) -> gtk::Widget {
     let v = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let t = gtk::Label::new(Some(title));
     t.set_halign(gtk::Align::Start);

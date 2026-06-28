@@ -62,7 +62,9 @@ async fn main() -> Result<()> {
 
     let app = App::new()?;
     let bind = format!("127.0.0.1:{port}");
-    let state = AppState { app: Arc::new(Mutex::new(app)) };
+    let state = AppState {
+        app: Arc::new(Mutex::new(app)),
+    };
 
     let router = routes(state).layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
@@ -112,8 +114,12 @@ struct PageQuery {
     #[serde(default = "default_per_page")]
     per_page: usize,
 }
-fn default_page() -> usize { 1 }
-fn default_per_page() -> usize { 50 }
+fn default_page() -> usize {
+    1
+}
+fn default_per_page() -> usize {
+    50
+}
 
 async fn status(State(s): State<AppState>) -> Result<Json<Status>, ApiError> {
     run(s, |a| a.status()).await.map(Json)
@@ -131,9 +137,11 @@ async fn list_sites(
     State(s): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Vec<Site>>, ApiError> {
-    run(s, move |a| a.list_sites(q.search.as_deref(), q.page, q.per_page))
-        .await
-        .map(Json)
+    run(s, move |a| {
+        a.list_sites(q.search.as_deref(), q.page, q.per_page)
+    })
+    .await
+    .map(Json)
 }
 
 async fn create_site(
@@ -167,7 +175,9 @@ async fn configure_site(
     Json(body): Json<ConfigureBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let cert = run(s, move |a| a.configure_site(id, body.ssl)).await?;
-    Ok(Json(json!({ "configured": id, "cert": cert.map(|c| c.id) })))
+    Ok(Json(
+        json!({ "configured": id, "cert": cert.map(|c| c.id) }),
+    ))
 }
 
 async fn site_cert(
@@ -232,7 +242,9 @@ async fn nginx_test(State(s): State<AppState>) -> Result<Json<serde_json::Value>
     Ok(Json(json!({ "ok": ok, "message": msg })))
 }
 
-async fn nginx_reload(State(s): State<AppState>) -> Result<Json<lsm_core::PrivilegedResult>, ApiError> {
+async fn nginx_reload(
+    State(s): State<AppState>,
+) -> Result<Json<lsm_core::PrivilegedResult>, ApiError> {
     run(s, |a| a.nginx_reload()).await.map(Json)
 }
 

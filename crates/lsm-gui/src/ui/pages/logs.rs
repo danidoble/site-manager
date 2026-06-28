@@ -1,8 +1,8 @@
 //! Logs viewer: source dropdown + monospace tail.
 
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::StringList;
+use gtk4 as gtk;
 
 use crate::ui::widgets::{margin_all, scrolled};
 use crate::ui::AppCtx;
@@ -57,9 +57,7 @@ impl LogsPage {
             let key = key.to_string();
             std::thread::spawn(move || {
                 let text = read_log_source(&key);
-                let _ = ctx
-                    .sender
-                    .send(Event::Log { source: key, text });
+                let _ = ctx.sender.send(Event::Log { source: key, text });
             });
         };
 

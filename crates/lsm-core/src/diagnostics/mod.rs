@@ -79,7 +79,10 @@ fn check_nginx_test(config: &Config) -> DiagnosticResult {
                 detail: Some(detail),
             }
         }
-        Err(e) => warn("nginx config", format!("could not run privileged nginx -t: {e}")),
+        Err(e) => warn(
+            "nginx config",
+            format!("could not run privileged nginx -t: {e}"),
+        ),
     }
 }
 
@@ -97,7 +100,10 @@ fn check_dns_resolver() -> DiagnosticResult {
                         "app.test resolves — a dnsmasq/hosts rule may already be active",
                     )
                 } else {
-                    pass("dns", "system resolver works; dev TLDs need dnsmasq or /etc/hosts")
+                    pass(
+                        "dns",
+                        "system resolver works; dev TLDs need dnsmasq or /etc/hosts",
+                    )
                 }
             } else {
                 fail("dns", "getent could not resolve localhost")
@@ -110,7 +116,10 @@ fn check_dns_resolver() -> DiagnosticResult {
 fn check_dnsmasq() -> DiagnosticResult {
     match which("dnsmasq") {
         Some(_) => pass("dnsmasq", "dnsmasq found"),
-        None => warn("dnsmasq", "dnsmasq not found (optional; install for wildcard DNS)"),
+        None => warn(
+            "dnsmasq",
+            "dnsmasq not found (optional; install for wildcard DNS)",
+        ),
     }
 }
 
@@ -151,7 +160,10 @@ fn check_ports() -> DiagnosticResult {
 fn check_browser_tools() -> DiagnosticResult {
     let certutil = which("certutil").is_some();
     if certutil {
-        pass("browser trust", "libnss3-tools (certutil) available for browser trust")
+        pass(
+            "browser trust",
+            "libnss3-tools (certutil) available for browser trust",
+        )
     } else {
         warn(
             "browser trust",

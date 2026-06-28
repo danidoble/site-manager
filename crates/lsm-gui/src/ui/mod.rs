@@ -4,6 +4,7 @@
 //! worker threads and ship plain-data results back over an `mpsc` channel,
 //! polled on the main thread to update the UI.
 
+pub mod about;
 pub mod pages;
 pub mod widgets;
 
@@ -12,7 +13,6 @@ use std::time::Duration;
 
 use glib::ControlFlow;
 use gtk4 as gtk;
-use gtk::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
@@ -40,6 +40,7 @@ pub enum Event {
         text: String,
     },
     TimerStatus(String),
+    SslBusy(bool, String),
     Toast(String),
     Error(String),
 }
@@ -124,13 +125,25 @@ pub fn build(app: &adw::Application) {
     // ---- register pages in the content stack ----
     register(&stack, "dashboard", "Dashboard", "Overview", &dashboard);
     register(&stack, "sites", "Sites", "Managed sites & proxies", &sites);
-    register(&stack, "templates", "Templates", "Project scaffolds", &templates);
+    register(
+        &stack,
+        "templates",
+        "Templates",
+        "Project scaffolds",
+        &templates,
+    );
     register(&stack, "ssl", "SSL", "Certificates & local CA", &ssl);
     register(&stack, "dns", "DNS", "Resolver setup", &dns);
     register(&stack, "health", "Health", "Proxy health checks", &health);
     register(&stack, "diagnostics", "Diagnostics", "System checks", &diag);
     register(&stack, "logs", "Logs", "Live log viewer", &logs);
-    register(&stack, "backups", "Backups", "Snapshots & restore", &backups);
+    register(
+        &stack,
+        "backups",
+        "Backups",
+        "Snapshots & restore",
+        &backups,
+    );
     register(&stack, "settings", "Settings", "Preferences", &settings);
 
     // ---- sidebar navigation ----
@@ -163,6 +176,14 @@ pub fn build(app: &adw::Application) {
         "Site Manager",
         "Local development",
     )));
+    let about_btn = gtk::Button::from_icon_name("help-about-symbolic");
+    about_btn.add_css_class("flat");
+    about_btn.set_tooltip_text(Some("About"));
+    {
+        let window = window.clone();
+        about_btn.connect_clicked(move |_| about::present(&window));
+    }
+    sidebar_header.pack_end(&about_btn);
     let sidebar_view = adw::ToolbarView::new();
     sidebar_view.add_top_bar(&sidebar_header);
     sidebar_view.set_content(Some(&nav));
@@ -202,11 +223,16 @@ pub fn build(app: &adw::Application) {
                     Event::Diagnostics(ds) => diag.set_diagnostics(ds.clone()),
                     Event::Backups(bs) => backups.set_backups(bs, &ctx),
                     Event::Health(items) => health.set_health(items),
-                    Event::DnsGuides { dnsmasq, hosts, wildcards } => {
+                    Event::DnsGuides {
+                        dnsmasq,
+                        hosts,
+                        wildcards,
+                    } => {
                         dns.set_guides(dnsmasq, hosts, wildcards);
                     }
                     Event::Log { source, text } => logs.set_log(source, text),
                     Event::TimerStatus(msg) => settings.set_timer_status(msg),
+                    Event::SslBusy(busy, msg) => ssl.set_busy(*busy, msg),
                     Event::Toast(msg) | Event::Error(msg) => {
                         ctx.toast(msg);
                     }
@@ -253,7 +279,8 @@ fn register<P: Page>(stack: &adw::ViewStack, name: &str, title: &str, subtitle: 
     let shell = page_shell(title, subtitle, page.body(), page.actions());
     let p = stack.add_titled(&shell.upcast::<gtk::Widget>(), Some(name), title);
     p.set_icon_name(Some(
-        SECTIONS.iter()
+        SECTIONS
+            .iter()
             .find(|(n, _, _)| *n == name)
             .map(|(_, _, i)| *i)
             .unwrap_or("text-x-generic-symbolic"),
@@ -266,7 +293,12 @@ pub trait Page {
     fn actions(&self) -> Vec<gtk::Widget>;
 }
 
-fn page_shell(title: &str, subtitle: &str, body: &gtk::Widget, actions: Vec<gtk::Widget>) -> adw::ToolbarView {
+fn page_shell(
+    title: &str,
+    subtitle: &str,
+    body: &gtk::Widget,
+    actions: Vec<gtk::Widget>,
+) -> adw::ToolbarView {
     let header = adw::HeaderBar::new();
     header.set_show_end_title_buttons(true);
     header.set_title_widget(Some(&adw::WindowTitle::new(title, subtitle)));
@@ -423,7 +455,11 @@ pub fn worker_health() -> Event {
 
 pub fn worker_dns_guides() -> Event {
     match lsm_core::App::new().map(|a| a.dns_guides("test")) {
-        Ok((dnsmasq, hosts, wildcards)) => Event::DnsGuides { dnsmasq, hosts, wildcards },
+        Ok((dnsmasq, hosts, wildcards)) => Event::DnsGuides {
+            dnsmasq,
+            hosts,
+            wildcards,
+        },
         Err(e) => Event::Error(e.to_string()),
     }
 }

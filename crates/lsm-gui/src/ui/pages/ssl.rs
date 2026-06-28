@@ -3,12 +3,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 use libadwaita as adw;
 
-use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled, Kind};
-use crate::ui::{worker_certs, worker_ca_info, AppCtx, Event};
+use crate::ui::widgets::{self, clear_listbox, margin_all, scrolled};
+use crate::ui::{worker_ca_info, worker_certs, AppCtx, Event};
 use lsm_core::domain::{Ca, SslCertificate};
 
 pub struct SslPage {
@@ -16,6 +16,9 @@ pub struct SslPage {
     pub actions: Vec<gtk::Widget>,
     pub list: gtk::ListBox,
     ca_status: gtk::Label,
+    init_ca: gtk::Button,
+    install_ca: gtk::Button,
+    install_browsers: gtk::Button,
     shared: Rc<RefCell<Vec<SslCertificate>>>,
 }
 
@@ -38,12 +41,16 @@ impl SslPage {
             let ctx = ctx.clone();
             init_ca.connect_clicked(move |_| {
                 let ctx = ctx.clone();
+                let _ = ctx
+                    .sender
+                    .send(Event::SslBusy(true, "Initializing CA...".into()));
                 std::thread::spawn(move || {
                     let r = lsm_core::App::new().and_then(|a| a.init_ca());
                     let _ = ctx.sender.send(match r {
                         Ok(_) => Event::Toast("CA initialized".into()),
                         Err(e) => Event::Error(e.to_string()),
                     });
+                    let _ = ctx.sender.send(Event::SslBusy(false, "CA ready".into()));
                     let _ = ctx.sender.send(worker_ca_info());
                 });
             });
@@ -52,6 +59,9 @@ impl SslPage {
             let ctx = ctx.clone();
             install_ca.connect_clicked(move |_| {
                 let ctx = ctx.clone();
+                let _ = ctx
+                    .sender
+                    .send(Event::SslBusy(true, "Installing system CA...".into()));
                 std::thread::spawn(move || {
                     let r = lsm_core::App::new().and_then(|a| a.install_ca(None));
                     let _ = ctx.sender.send(match r {
@@ -59,6 +69,9 @@ impl SslPage {
                         Ok(p) => Event::Error(p.message),
                         Err(e) => Event::Error(e.to_string()),
                     });
+                    let _ = ctx
+                        .sender
+                        .send(Event::SslBusy(false, "System CA install finished".into()));
                 });
             });
         }
@@ -66,6 +79,9 @@ impl SslPage {
             let ctx = ctx.clone();
             install_browsers.connect_clicked(move |_| {
                 let ctx = ctx.clone();
+                let _ = ctx
+                    .sender
+                    .send(Event::SslBusy(true, "Installing browser CA...".into()));
                 std::thread::spawn(move || {
                     let r = lsm_core::App::new().and_then(|a| a.install_ca(Some("all")));
                     let _ = ctx.sender.send(match r {
@@ -73,13 +89,15 @@ impl SslPage {
                         Ok(p) => Event::Error(p.message),
                         Err(e) => Event::Error(e.to_string()),
                     });
+                    let _ = ctx
+                        .sender
+                        .send(Event::SslBusy(false, "Browser CA install finished".into()));
                 });
             });
         }
 
         // CA banner.
         let ca_card = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        ca_card.add_css_class("stat-card");
         let ca_title = gtk::Label::new(Some("Local Root CA"));
         ca_title.add_css_class("heading");
         ca_title.set_halign(gtk::Align::Start);
@@ -110,11 +128,26 @@ impl SslPage {
 
         Self {
             body: root.upcast(),
-            actions: vec![install_browsers.upcast(), install_ca.upcast(), init_ca.upcast(), refresh.upcast()],
+            actions: vec![
+                install_browsers.clone().upcast(),
+                install_ca.clone().upcast(),
+                init_ca.clone().upcast(),
+                refresh.upcast(),
+            ],
             list,
             ca_status,
+            init_ca,
+            install_ca,
+            install_browsers,
             shared: Rc::new(RefCell::new(Vec::new())),
         }
+    }
+
+    pub fn set_busy(&self, busy: bool, msg: &str) {
+        self.init_ca.set_sensitive(!busy);
+        self.install_ca.set_sensitive(!busy);
+        self.install_browsers.set_sensitive(!busy);
+        self.ca_status.set_text(msg);
     }
 
     pub fn set_ca(&self, ca: Option<&Ca>) {
@@ -148,7 +181,9 @@ impl SslPage {
 
         let mut sorted = certs.clone();
         sorted.sort_by(|a, b| a.not_after.cmp(&b.not_after));
-        self.list.append(&header_row(&["Domain", "Issued", "Expires", "Status", "Actions"]));
+        self.list.append(&header_row(&[
+            "Domain", "Issued", "Expires", "Status", "Actions",
+        ]));
         for c in sorted {
             self.list.append(&cert_row(&c, ctx));
         }
@@ -156,7 +191,7 @@ impl SslPage {
 }
 
 fn cert_row(c: &SslCertificate, ctx: &AppCtx) -> gtk::Widget {
-    let (kind, label) = expiry_state(&c.not_after);
+    let (icon, label) = expiry_state(&c.not_after);
     let row = gtk::ListBoxRow::new();
     row.set_selectable(false);
     let grid = gtk::Grid::new();
@@ -168,7 +203,7 @@ fn cert_row(c: &SslCertificate, ctx: &AppCtx) -> gtk::Widget {
     grid.attach(&text_cell(&c.domains.join(", "), true), 0, 0, 1, 1);
     grid.attach(&text_cell(short_date(&c.created_at), false), 1, 0, 1, 1);
     grid.attach(&text_cell(short_date(&c.not_after), false), 2, 0, 1, 1);
-    grid.attach(&widgets::pill(kind, label), 3, 0, 1, 1);
+    grid.attach(&status_cell(icon, label), 3, 0, 1, 1);
 
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let renew = gtk::Button::with_label("Renew");
@@ -185,6 +220,7 @@ fn cert_row(c: &SslCertificate, ctx: &AppCtx) -> gtk::Widget {
                     Err(e) => Event::Error(e.to_string()),
                 });
                 let _ = ctx.sender.send(worker_certs());
+                let _ = ctx.sender.send(crate::ui::worker_sites());
             });
         });
     }
@@ -212,6 +248,15 @@ fn cert_row(c: &SslCertificate, ctx: &AppCtx) -> gtk::Widget {
     grid.attach(&actions, 4, 0, 1, 1);
     row.set_child(Some(&grid));
     row.upcast()
+}
+
+fn status_cell(icon: &str, text: &str) -> gtk::Box {
+    let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    box_.append(&gtk::Image::from_icon_name(icon));
+    let label = text_cell(text, false);
+    label.add_css_class("dim-label");
+    box_.append(&label);
+    box_
 }
 
 fn header_row(cols: &[&str]) -> gtk::Widget {
@@ -242,18 +287,18 @@ fn text_cell(text: &str, expand: bool) -> gtk::Label {
     l
 }
 
-/// Return (kind, label) from an RFC3339 expiry. Lexical compare works for the
+/// Return (icon, label) from an RFC3339 expiry. Lexical compare works for the
 /// fixed-format timestamps emitted by the core.
-fn expiry_state(not_after: &str) -> (Kind, &'static str) {
+fn expiry_state(not_after: &str) -> (&'static str, &'static str) {
     // Approximate "expiring soon" with a 30-day horizon using a coarse string
     // probe against today's date prefix.
     let today = now_prefix();
     if not_after < today.as_str() {
-        (Kind::Error, "expired")
+        ("dialog-error-symbolic", "expired")
     } else if starts_within_30d(not_after, &today) {
-        (Kind::Warning, "expiring soon")
+        ("dialog-warning-symbolic", "expiring soon")
     } else {
-        (Kind::Success, "valid")
+        ("emblem-ok-symbolic", "valid")
     }
 }
 

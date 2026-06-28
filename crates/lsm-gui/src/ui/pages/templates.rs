@@ -1,9 +1,9 @@
 //! Project templates gallery → prefilled New Site wizard.
 
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 
-use crate::ui::widgets::{margin_all, scrolled, Kind};
+use crate::ui::widgets::{margin_all, scrolled};
 use crate::ui::AppCtx;
 use lsm_core::templates::ProjectTemplate;
 
@@ -46,8 +46,8 @@ impl TemplatesPage {
 }
 
 fn card(ctx: &AppCtx, t: ProjectTemplate) -> gtk::Widget {
+    let missing = missing_tools(&t);
     let frame = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    frame.add_css_class("stat-card");
     frame.set_margin_start(4);
     frame.set_margin_end(4);
     frame.set_valign(gtk::Align::Start);
@@ -63,14 +63,24 @@ fn card(ctx: &AppCtx, t: ProjectTemplate) -> gtk::Widget {
     title.set_halign(gtk::Align::Start);
     title.add_css_class("heading");
 
-    let sub = gtk::Label::new(Some(&format!("{} · {}", t.runtime, t.site_type_str)));
+    let sub_text = if missing.is_empty() {
+        format!("{} · {}", t.runtime, t.site_type_str)
+    } else {
+        format!("Requires {}", missing.join(", "))
+    };
+    let sub = gtk::Label::new(Some(&sub_text));
     sub.set_halign(gtk::Align::Start);
     sub.add_css_class("dim-more");
 
-    let badge = crate::ui::widgets::pill(Kind::Inactive, &t.runtime);
+    let runtime = gtk::Label::new(Some(&format!("{} · {}", t.runtime, t.install)));
+    runtime.set_halign(gtk::Align::Start);
+    runtime.set_xalign(0.0);
+    runtime.set_wrap(true);
+    runtime.add_css_class("dim-more");
 
     let use_btn = gtk::Button::with_label("Use template");
     use_btn.add_css_class("suggested-action");
+    use_btn.set_sensitive(missing.is_empty());
     {
         let ctx = ctx.clone();
         let t = t.clone();
@@ -83,10 +93,78 @@ fn card(ctx: &AppCtx, t: ProjectTemplate) -> gtk::Widget {
     top.append(&title);
 
     frame.append(&top);
-    frame.append(&badge);
     frame.append(&sub);
+    frame.append(&runtime);
     frame.append(&use_btn);
     frame.upcast()
+}
+
+fn missing_tools(t: &ProjectTemplate) -> Vec<String> {
+    let required: &[&str] = match t.runtime.as_str() {
+        "php" => {
+            if t.name == "wordpress" {
+                &["php"]
+            } else {
+                &["php", "composer"]
+            }
+        }
+        "node" => &["node"],
+        "python" => {
+            if t.name == "django" {
+                &["python3", "django-admin"]
+            } else {
+                &["python3"]
+            }
+        }
+        "go" => &["go"],
+        _ => &[],
+    };
+    let mut missing: Vec<String> = required
+        .iter()
+        .filter(|tool| find_bin(tool).is_none())
+        .map(|tool| (*tool).to_string())
+        .collect();
+    if t.runtime == "node" && package_managers().is_empty() {
+        missing.push("npm/pnpm/yarn/bun".to_string());
+    }
+    missing
+}
+
+fn package_managers() -> Vec<String> {
+    ["npm", "pnpm", "yarn", "bun"]
+        .iter()
+        .filter(|bin| find_bin(bin).is_some())
+        .map(|bin| (*bin).to_string())
+        .collect()
+}
+
+fn find_bin(bin: &str) -> Option<std::path::PathBuf> {
+    for dir in candidate_dirs() {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn candidate_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".npm-global/bin"));
+        let nvm = home.join(".nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(nvm) {
+            for entry in entries.flatten() {
+                dirs.push(entry.path().join("bin"));
+            }
+        }
+    }
+    dirs.push(std::path::PathBuf::from("/usr/local/go/bin"));
+    dirs
 }
 
 fn icon_for(t: &ProjectTemplate) -> &'static str {

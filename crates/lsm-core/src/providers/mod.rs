@@ -4,8 +4,8 @@
 //! runtimes, and mkcert/custom certificate providers. First implementations live in
 //! [`crate::nginx`], [`crate::ssl`], and [`crate::ca`].
 
-use crate::error::Result;
 use crate::domain::{Site, SslCertificate};
+use crate::error::Result;
 
 /// Web server provider (Nginx today; Apache/Caddy/Traefik later).
 pub trait WebServerProvider: Send + Sync {

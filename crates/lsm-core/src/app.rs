@@ -119,7 +119,10 @@ impl App {
         };
 
         if self.db.find_site_by_name(&input.name)?.is_some() {
-            return Err(Error::Validation(format!("site `{}` already exists", input.name)));
+            return Err(Error::Validation(format!(
+                "site `{}` already exists",
+                input.name
+            )));
         }
 
         if matches!(input.site_type, SiteType::Static | SiteType::Php) && input.template.is_none() {
@@ -129,7 +132,12 @@ impl App {
         self.db.insert_site(&input, &project_path, &self.now())
     }
 
-    pub fn list_sites(&self, search: Option<&str>, page: usize, per_page: usize) -> Result<Vec<Site>> {
+    pub fn list_sites(
+        &self,
+        search: Option<&str>,
+        page: usize,
+        per_page: usize,
+    ) -> Result<Vec<Site>> {
         let per_page = per_page.clamp(1, 500) as i64;
         let offset = (page.saturating_sub(1) * per_page as usize) as i64;
         self.db.list_sites(search, per_page, offset)
@@ -153,7 +161,9 @@ impl App {
             return Err(Error::Validation("php sites require a php version".into()));
         }
         if site.site_type == SiteType::Proxy && site.proxy_target.is_none() {
-            return Err(Error::Validation("proxy sites require a proxy target".into()));
+            return Err(Error::Validation(
+                "proxy sites require a proxy target".into(),
+            ));
         }
         if matches!(site.site_type, SiteType::Static | SiteType::Php) {
             self.ensure_project_dir(&site.project_path)?;
@@ -167,6 +177,13 @@ impl App {
     pub fn delete_site(&self, id: i64) -> Result<()> {
         let site = self.db.get_site(id)?;
         self.remove_site_config(&site)?;
+        let (ok, msg) = self.nginx_test()?;
+        if !ok {
+            return Err(Error::Nginx(format!(
+                "nginx -t failed after removing site: {msg}"
+            )));
+        }
+        self.nginx_reload()?;
         if let Some(cert_id) = site.ssl_cert_id {
             let _ = self.delete_cert(cert_id);
         }
@@ -258,16 +275,16 @@ impl App {
         };
         let rendered = nginx::render(site, cert.as_ref(), self.layout())?;
         if !nginx::braces_balanced(&rendered) {
-            return Err(Error::Nginx("generated config has unbalanced braces".into()));
+            return Err(Error::Nginx(
+                "generated config has unbalanced braces".into(),
+            ));
         }
 
         // Always keep a local copy under the storage root.
         let local = self.paths.nginx_out.join(format!("{}.conf", site.name));
         std::fs::write(&local, &rendered)?;
 
-        let (target, symlink) = self
-            .nginx_paths()
-            .target_for(self.layout(), &site.name);
+        let (target, symlink) = self.nginx_paths().target_for(self.layout(), &site.name);
         privileged::run(
             &PrivilegedCommand::WriteNginxConfig {
                 target_path: target.to_string_lossy().to_string(),
@@ -297,8 +314,15 @@ impl App {
     /// Configure a site end-to-end: optionally issue SSL, write nginx config, then
     /// test + reload. Returns the (possibly new) certificate if issued.
     pub fn configure_site(&self, id: i64, issue_ssl: bool) -> Result<Option<SslCertificate>> {
-        let mut site = self.db.get_site(id)?;
-        let cert = if issue_ssl && site.ssl_cert_id.is_none() {
+        let original_site = self.db.get_site(id)?;
+        let old_cert_id = original_site.ssl_cert_id;
+        let mut site = original_site.clone();
+        let cert = if issue_ssl {
+            if self.ca_info()?.is_none()
+                && self.config.cert_provider == crate::config::CertProvider::Internal
+            {
+                self.init_ca()?;
+            }
             let c = self.issue_site_cert(id)?;
             site.ssl_cert_id = Some(c.id);
             Some(c)
@@ -308,9 +332,27 @@ impl App {
         self.write_site_config(&site)?;
         let (ok, msg) = self.nginx_test()?;
         if !ok {
+            if issue_ssl {
+                if let Some(new_id) = cert.as_ref().map(|c| c.id) {
+                    if let Some(old_id) = old_cert_id {
+                        let _ = self.db.set_site_cert(id, old_id, &self.now());
+                    } else {
+                        let _ = self.db.detach_cert(new_id);
+                    }
+                    let _ = self.delete_cert(new_id);
+                    let _ = self.write_site_config(&original_site);
+                }
+            }
             return Err(Error::Nginx(format!("nginx -t failed: {msg}")));
         }
         self.nginx_reload()?;
+        if issue_ssl {
+            if let (Some(old_id), Some(new_id)) = (old_cert_id, cert.as_ref().map(|c| c.id)) {
+                if old_id != new_id {
+                    let _ = self.delete_cert(old_id);
+                }
+            }
+        }
         Ok(cert)
     }
 
@@ -324,7 +366,10 @@ impl App {
     }
 
     pub fn ca_info(&self) -> Result<Option<Ca>> {
-        Ok(self.db.get_ca()?.or_else(|| ca::load_ca(&self.paths.ca, "internal").ok().flatten()))
+        Ok(self
+            .db
+            .get_ca()?
+            .or_else(|| ca::load_ca(&self.paths.ca, "internal").ok().flatten()))
     }
 
     /// Install the CA into the system trust store (privileged) or user browser NSS DBs.
@@ -333,7 +378,9 @@ impl App {
     /// live in the user's home, and running certutil through pkexec would modify
     /// root's profiles instead.
     pub fn install_ca(&self, browser: Option<&str>) -> Result<PrivilegedResult> {
-        let ca = self.ca_info()?.ok_or_else(|| Error::NotFound("no CA initialized".into()))?;
+        let ca = self
+            .ca_info()?
+            .ok_or_else(|| Error::NotFound("no CA initialized".into()))?;
         if let Some(b) = browser {
             self.install_ca_browser(b, &ca.cert_path)
         } else {
@@ -403,19 +450,26 @@ impl App {
     /// Issue a certificate for a site using the configured provider.
     pub fn issue_site_cert(&self, site_id: i64) -> Result<SslCertificate> {
         let site = self.db.get_site(site_id)?;
-        let old_cert_id = site.ssl_cert_id;
         let domains = self.site_domains(&site);
-        let cert = self.issue_domains(Some(site_id), &site.name, &domains)?;
-        if let Some(old_id) = old_cert_id {
-            if old_id != cert.id {
-                let _ = self.delete_cert(old_id);
-            }
-        }
-        Ok(cert)
+        let cert_name = if site.ssl_cert_id.is_some() {
+            format!(
+                "{}-{}",
+                site.name,
+                chrono::Utc::now().format("%Y%m%d%H%M%S")
+            )
+        } else {
+            site.name.clone()
+        };
+        self.issue_domains(Some(site_id), &cert_name, &domains)
     }
 
     /// Issue a standalone certificate for an explicit domain list.
-    pub fn issue_domains(&self, site_id: Option<i64>, name: &str, domains: &[String]) -> Result<SslCertificate> {
+    pub fn issue_domains(
+        &self,
+        site_id: Option<i64>,
+        name: &str,
+        domains: &[String],
+    ) -> Result<SslCertificate> {
         if domains.is_empty() {
             return Err(Error::Validation("no domains provided".into()));
         }
@@ -462,8 +516,13 @@ impl App {
     /// Renew: re-issue the same domains and attach.
     pub fn renew_cert(&self, id: i64) -> Result<SslCertificate> {
         let cert = self.db.get_cert(id)?;
-        let name = format!("renewed-{id}");
-        self.issue_domains(cert.site_id, &name, &cert.domains)
+        if let Some(site_id) = cert.site_id {
+            self.configure_site(site_id, true)?
+                .ok_or_else(|| Error::Other("renew did not issue a certificate".into()))
+        } else {
+            let name = format!("renewed-{id}-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+            self.issue_domains(cert.site_id, &name, &cert.domains)
+        }
     }
 
     pub fn add_hosts_for_site(&self, site: &Site) -> Result<PrivilegedResult> {
@@ -503,7 +562,11 @@ impl App {
             "not installed".to_string()
         };
         let ca_present = self.ca_info()?.is_some();
-        let ssl_status = if ca_present { "ready".to_string() } else { "no CA".to_string() };
+        let ssl_status = if ca_present {
+            "ready".to_string()
+        } else {
+            "no CA".to_string()
+        };
         let php_status = if php_versions.is_empty() {
             "none".to_string()
         } else {
@@ -558,14 +621,25 @@ impl App {
     /// Apply a dnsmasq drop-in (privileged).
     pub fn apply_dnsmasq(&self, tld: &str) -> Result<PrivilegedResult> {
         let content = self.dnsmasq_config(tld);
-        privileged::run(
+        let dnsmasq = privileged::run(
             &PrivilegedCommand::SetDnsmasq {
                 target_path: dns::dnsmasq_target(),
                 content,
             },
             self.config.dry_run,
             self.helper(),
-        )
+        )?;
+        privileged::run(
+            &PrivilegedCommand::SetResolved {
+                target_path: dns::resolved_target(),
+                content: dns::resolved_snippet(tld),
+            },
+            self.config.dry_run,
+            self.helper(),
+        )?;
+        let _ = self.systemctl("restart", "dnsmasq");
+        let _ = self.systemctl("restart", "systemd-resolved");
+        Ok(dnsmasq)
     }
 
     // ---- backup ----------------------------------------------------------
@@ -641,14 +715,21 @@ fn browser_nss_dbs(browser: &str) -> Result<Vec<PathBuf>> {
         if let Ok(entries) = std::fs::read_dir(&firefox) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() && (path.join("cert9.db").exists() || path.join("key4.db").exists()) {
+                if path.is_dir()
+                    && (path.join("cert9.db").exists() || path.join("key4.db").exists())
+                {
                     out.push(path);
                 }
             }
         }
     }
 
-    if out.is_empty() && !matches!(browser, "all" | "browsers" | "chrome" | "chromium" | "brave" | "firefox") {
+    if out.is_empty()
+        && !matches!(
+            browser,
+            "all" | "browsers" | "chrome" | "chromium" | "brave" | "firefox"
+        )
+    {
         return Err(Error::Validation(format!(
             "unknown browser `{browser}`; use firefox, chromium, chrome, brave, or all"
         )));
@@ -668,7 +749,10 @@ fn install_ca_into_nss_db(db: &Path, cert_path: &str) -> Result<()> {
             .status()
             .map_err(|e| Error::Other(format!("spawn certutil: {e} (install libnss3-tools)")))?;
         if !status.success() {
-            return Err(Error::Other(format!("certutil -N failed for {}", db.display())));
+            return Err(Error::Other(format!(
+                "certutil -N failed for {}",
+                db.display()
+            )));
         }
     }
 
@@ -676,7 +760,17 @@ fn install_ca_into_nss_db(db: &Path, cert_path: &str) -> Result<()> {
         .args(["-d", &db_arg, "-D", "-n", "LSM-Local-CA"])
         .status();
     let output = Command::new("certutil")
-        .args(["-d", &db_arg, "-A", "-n", "LSM-Local-CA", "-t", "C,,", "-i", cert_path])
+        .args([
+            "-d",
+            &db_arg,
+            "-A",
+            "-n",
+            "LSM-Local-CA",
+            "-t",
+            "C,,",
+            "-i",
+            cert_path,
+        ])
         .output()
         .map_err(|e| Error::Other(format!("spawn certutil: {e} (install libnss3-tools)")))?;
     if output.status.success() {
@@ -761,6 +855,27 @@ mod tests {
             .unwrap();
         let cert = app.issue_site_cert(s.id).unwrap();
         assert!(cert.domains.contains(&"*.app.test".to_string()));
+    }
+
+    #[test]
+    fn reissue_site_cert_keeps_new_files() {
+        let app = temp_app();
+        app.init_ca().unwrap();
+        let s = app
+            .create_site(NewSite {
+                name: "app".into(),
+                primary_domain: "app.test".into(),
+                wildcard: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let first = app.issue_site_cert(s.id).unwrap();
+        let second = app.issue_site_cert(s.id).unwrap();
+        assert_ne!(first.id, second.id);
+        assert_ne!(first.cert_path, second.cert_path);
+        assert!(std::path::Path::new(&second.cert_path).is_file());
+        assert!(std::path::Path::new(&second.key_path).is_file());
+        assert_eq!(app.get_site(s.id).unwrap().ssl_cert_id, Some(second.id));
     }
 
     #[test]

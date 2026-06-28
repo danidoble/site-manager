@@ -26,22 +26,44 @@ enum PrivilegedCommand {
         target_path: String,
         symlink_path: Option<String>,
     },
-    InstallCaSystem { cert_path: String },
-    InstallCaBrowser { browser: String, cert_path: String },
+    InstallCaSystem {
+        cert_path: String,
+    },
+    InstallCaBrowser {
+        browser: String,
+        cert_path: String,
+    },
     Chown {
         path: String,
         owner: String,
         group: Option<String>,
     },
-    SetDnsmasq { target_path: String, content: String },
-    EnsureDir { path: String },
-    AddHosts { site_name: String, domains: Vec<String> },
-    RemoveHosts { site_name: String },
+    SetDnsmasq {
+        target_path: String,
+        content: String,
+    },
+    SetResolved {
+        target_path: String,
+        content: String,
+    },
+    EnsureDir {
+        path: String,
+    },
+    AddHosts {
+        site_name: String,
+        domains: Vec<String>,
+    },
+    RemoveHosts {
+        site_name: String,
+    },
     InstallAutoRenewTimer {
         service_content: String,
         timer_content: String,
     },
-    Systemctl { action: String, service: String },
+    Systemctl {
+        action: String,
+        service: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -56,10 +78,20 @@ struct PrivilegedResult {
 
 impl PrivilegedResult {
     fn ok(msg: impl Into<String>) -> Self {
-        Self { success: true, message: msg.into(), stdout: String::new(), stderr: String::new() }
+        Self {
+            success: true,
+            message: msg.into(),
+            stdout: String::new(),
+            stderr: String::new(),
+        }
     }
     fn fail(msg: impl Into<String>) -> Self {
-        Self { success: false, message: msg.into(), stdout: String::new(), stderr: String::new() }
+        Self {
+            success: false,
+            message: msg.into(),
+            stdout: String::new(),
+            stderr: String::new(),
+        }
     }
 }
 
@@ -103,6 +135,7 @@ fn op_name(c: &PrivilegedCommand) -> &'static str {
         PrivilegedCommand::InstallCaBrowser { .. } => "install_ca_browser",
         PrivilegedCommand::Chown { .. } => "chown",
         PrivilegedCommand::SetDnsmasq { .. } => "set_dnsmasq",
+        PrivilegedCommand::SetResolved { .. } => "set_resolved",
         PrivilegedCommand::EnsureDir { .. } => "ensure_dir",
         PrivilegedCommand::AddHosts { .. } => "add_hosts",
         PrivilegedCommand::RemoveHosts { .. } => "remove_hosts",
@@ -115,11 +148,30 @@ fn dry_run_result(c: &PrivilegedCommand) -> PrivilegedResult {
     let msg = match c {
         PrivilegedCommand::NginxTest => "would run `nginx -t`".into(),
         PrivilegedCommand::NginxReload => "would run `systemctl reload nginx`".into(),
-        PrivilegedCommand::WriteNginxConfig { target_path, symlink_path, .. } => {
-            format!("would write {target_path}{}", symlink_path.as_deref().map(|s| format!(" + symlink {s}")).unwrap_or_default())
+        PrivilegedCommand::WriteNginxConfig {
+            target_path,
+            symlink_path,
+            ..
+        } => {
+            format!(
+                "would write {target_path}{}",
+                symlink_path
+                    .as_deref()
+                    .map(|s| format!(" + symlink {s}"))
+                    .unwrap_or_default()
+            )
         }
-        PrivilegedCommand::RemoveNginxConfig { target_path, symlink_path } => {
-            format!("would remove {target_path}{}", symlink_path.as_deref().map(|s| format!(" + symlink {s}")).unwrap_or_default())
+        PrivilegedCommand::RemoveNginxConfig {
+            target_path,
+            symlink_path,
+        } => {
+            format!(
+                "would remove {target_path}{}",
+                symlink_path
+                    .as_deref()
+                    .map(|s| format!(" + symlink {s}"))
+                    .unwrap_or_default()
+            )
         }
         PrivilegedCommand::InstallCaSystem { cert_path } => {
             format!("would install {cert_path} into system trust store (update-ca-certificates)")
@@ -128,14 +180,26 @@ fn dry_run_result(c: &PrivilegedCommand) -> PrivilegedResult {
             format!("would install {cert_path} into {browser} NSS database")
         }
         PrivilegedCommand::Chown { path, owner, group } => {
-            format!("would chown {path} to {owner}{}", group.as_deref().map(|g| format!(":{g}")).unwrap_or_default())
+            format!(
+                "would chown {path} to {owner}{}",
+                group
+                    .as_deref()
+                    .map(|g| format!(":{g}"))
+                    .unwrap_or_default()
+            )
         }
         PrivilegedCommand::SetDnsmasq { target_path, .. } => {
             format!("would write dnsmasq drop-in {target_path}")
         }
+        PrivilegedCommand::SetResolved { target_path, .. } => {
+            format!("would write systemd-resolved drop-in {target_path}")
+        }
         PrivilegedCommand::EnsureDir { path } => format!("would create directory {path}"),
         PrivilegedCommand::AddHosts { site_name, domains } => {
-            format!("would add hosts block for {site_name}: {}", domains.join(", "))
+            format!(
+                "would add hosts block for {site_name}: {}",
+                domains.join(", ")
+            )
         }
         PrivilegedCommand::RemoveHosts { site_name } => {
             format!("would remove hosts block for {site_name}")
@@ -153,27 +217,38 @@ fn dry_run_result(c: &PrivilegedCommand) -> PrivilegedResult {
 fn execute(c: &PrivilegedCommand) -> PrivilegedResult {
     match c {
         PrivilegedCommand::NginxTest => run_cmd("nginx", &["-t"], "nginx config test"),
-        PrivilegedCommand::NginxReload => run_cmd("systemctl", &["reload", "nginx"], "nginx reload"),
-        PrivilegedCommand::WriteNginxConfig { target_path, symlink_path, content } => {
-            write_nginx_config(target_path, symlink_path.as_deref(), content)
+        PrivilegedCommand::NginxReload => {
+            run_cmd("systemctl", &["reload", "nginx"], "nginx reload")
         }
-        PrivilegedCommand::RemoveNginxConfig { target_path, symlink_path } => {
-            remove_nginx_config(target_path, symlink_path.as_deref())
-        }
+        PrivilegedCommand::WriteNginxConfig {
+            target_path,
+            symlink_path,
+            content,
+        } => write_nginx_config(target_path, symlink_path.as_deref(), content),
+        PrivilegedCommand::RemoveNginxConfig {
+            target_path,
+            symlink_path,
+        } => remove_nginx_config(target_path, symlink_path.as_deref()),
         PrivilegedCommand::InstallCaSystem { cert_path } => install_ca_system(cert_path),
         PrivilegedCommand::InstallCaBrowser { browser, cert_path } => {
             install_ca_browser(browser, cert_path)
         }
         PrivilegedCommand::Chown { path, owner, group } => chown(path, owner, group.as_deref()),
-        PrivilegedCommand::SetDnsmasq { target_path, content } => {
-            write_file(target_path, content, "dnsmasq drop-in")
-        }
+        PrivilegedCommand::SetDnsmasq {
+            target_path,
+            content,
+        } => write_file_idempotent(target_path, content, "dnsmasq drop-in"),
+        PrivilegedCommand::SetResolved {
+            target_path,
+            content,
+        } => write_file_idempotent(target_path, content, "systemd-resolved drop-in"),
         PrivilegedCommand::EnsureDir { path } => ensure_dir(path),
         PrivilegedCommand::AddHosts { site_name, domains } => add_hosts(site_name, domains),
         PrivilegedCommand::RemoveHosts { site_name } => remove_hosts(site_name),
-        PrivilegedCommand::InstallAutoRenewTimer { service_content, timer_content } => {
-            install_auto_renew_timer(service_content, timer_content)
-        }
+        PrivilegedCommand::InstallAutoRenewTimer {
+            service_content,
+            timer_content,
+        } => install_auto_renew_timer(service_content, timer_content),
         PrivilegedCommand::Systemctl { action, service } => systemctl(action, service),
     }
 }
@@ -186,11 +261,20 @@ fn run_cmd(bin: &str, args: &[&str], label: &str) -> PrivilegedResult {
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     if out.status.success() {
-        PrivilegedResult { success: true, message: format!("{label} ok"), stdout, stderr }
+        PrivilegedResult {
+            success: true,
+            message: format!("{label} ok"),
+            stdout,
+            stderr,
+        }
     } else {
         PrivilegedResult {
             success: false,
-            message: format!("{label} failed (exit {}) {}", out.status.code().unwrap_or(-1), stderr.trim()),
+            message: format!(
+                "{label} failed (exit {}) {}",
+                out.status.code().unwrap_or(-1),
+                stderr.trim()
+            ),
             stdout,
             stderr,
         }
@@ -214,6 +298,15 @@ fn write_file(path: &str, content: &str, label: &str) -> PrivilegedResult {
     PrivilegedResult::ok(format!("{label} written to {path}"))
 }
 
+fn write_file_idempotent(path: &str, content: &str, label: &str) -> PrivilegedResult {
+    if let Ok(existing) = fs::read_to_string(path) {
+        if existing == content {
+            return PrivilegedResult::ok(format!("{label} already exists at {path}"));
+        }
+    }
+    write_file(path, content, label)
+}
+
 fn ensure_dir(path: &str) -> PrivilegedResult {
     match fs::create_dir_all(path) {
         Ok(_) => PrivilegedResult::ok(format!("directory ready at {path}")),
@@ -221,7 +314,11 @@ fn ensure_dir(path: &str) -> PrivilegedResult {
     }
 }
 
-fn write_nginx_config(target_path: &str, symlink_path: Option<&str>, content: &str) -> PrivilegedResult {
+fn write_nginx_config(
+    target_path: &str,
+    symlink_path: Option<&str>,
+    content: &str,
+) -> PrivilegedResult {
     let r = write_file(target_path, content, "nginx config");
     if !r.success {
         return r;
@@ -272,15 +369,29 @@ fn install_ca_browser(browser: &str, cert_path: &str) -> PrivilegedResult {
     // certutil -d sql:<db> -A -n LSM-Local-CA -t "C,," -i <cert>
     let db_arg = format!("sql:{db}");
     let out = Command::new("certutil")
-        .args(["-d", &db_arg, "-A", "-n", "LSM-Local-CA", "-t", "C,,", "-i", cert_path])
+        .args([
+            "-d",
+            &db_arg,
+            "-A",
+            "-n",
+            "LSM-Local-CA",
+            "-t",
+            "C,,",
+            "-i",
+            cert_path,
+        ])
         .output();
     match out {
-        Ok(o) if o.status.success() => PrivilegedResult::ok(format!("CA installed into {browser} ({db})")),
+        Ok(o) if o.status.success() => {
+            PrivilegedResult::ok(format!("CA installed into {browser} ({db})"))
+        }
         Ok(o) => PrivilegedResult::fail(format!(
             "certutil failed: {}",
             String::from_utf8_lossy(&o.stderr).trim()
         )),
-        Err(e) => PrivilegedResult::fail(format!("spawn certutil: {e} (is libnss3-tools installed?)")),
+        Err(e) => {
+            PrivilegedResult::fail(format!("spawn certutil: {e} (is libnss3-tools installed?)"))
+        }
     }
 }
 
@@ -308,12 +419,20 @@ fn add_hosts(site_name: &str, domains: &[String]) -> PrivilegedResult {
         clean.join(" "),
         clean.join(" ")
     );
-    write_file("/etc/hosts", &(stripped.trim_end().to_string() + &block), "hosts")
+    write_file(
+        "/etc/hosts",
+        &(stripped.trim_end().to_string() + &block),
+        "hosts",
+    )
 }
 
 fn remove_hosts(site_name: &str) -> PrivilegedResult {
     let existing = fs::read_to_string("/etc/hosts").unwrap_or_default();
-    write_file("/etc/hosts", &strip_hosts_block(&existing, site_name), "hosts")
+    write_file(
+        "/etc/hosts",
+        &strip_hosts_block(&existing, site_name),
+        "hosts",
+    )
 }
 
 fn install_auto_renew_timer(service_content: &str, timer_content: &str) -> PrivilegedResult {
@@ -368,19 +487,35 @@ fn strip_hosts_block(text: &str, site_name: &str) -> String {
 fn systemctl(action: &str, service: &str) -> PrivilegedResult {
     let allowed_action = matches!(
         action,
-        "reload" | "restart" | "status" | "is-active" | "is-enabled" | "enable" | "disable" | "start" | "stop"
+        "reload"
+            | "restart"
+            | "status"
+            | "is-active"
+            | "is-enabled"
+            | "enable"
+            | "disable"
+            | "start"
+            | "stop"
     );
     let allowed_service = service == "nginx"
         || service == "dnsmasq"
+        || service == "systemd-resolved"
         || service == "local-site-manager.timer"
         || service == "local-site-manager.service"
         || (service.starts_with("php") && service.ends_with("-fpm"));
     if !allowed_action || !allowed_service {
         return PrivilegedResult::fail(format!("systemctl {action} {service}: not allowed"));
     }
-    run_cmd("systemctl", &[action, service], &format!("systemctl {action} {service}"))
+    run_cmd(
+        "systemctl",
+        &[action, service],
+        &format!("systemctl {action} {service}"),
+    )
 }
 
 fn emit(result: PrivilegedResult) {
-    println!("{}", serde_json::to_string(&result).expect("serialize result"));
+    println!(
+        "{}",
+        serde_json::to_string(&result).expect("serialize result")
+    );
 }
